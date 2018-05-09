@@ -50,6 +50,9 @@ cl_kernel kernel[2];
 cl_mem buf_pos[2];
 cl_mem buf_vel[2];
 cl_mem buf_normal;
+cl_mem rk2_tempx;
+cl_mem rk2_tempy;
+cl_mem rk2_tempz;
 
 /******************************************************************************************************/
 // For OpenGL
@@ -107,6 +110,7 @@ GLuint loc_curr_pos, loc_next_pos;
 GLuint loc_curr_vel, loc_next_vel;
 GLuint loc_normal;
 GLuint loc_element_indices, loc_texcoord;
+GLuint x = 0, y = 0, z = 0;
 
 GLuint cloth_VAO;
 GLuint cloth_BOs[7];
@@ -163,7 +167,7 @@ const float DAMPING_CONST = 0.01;
 // Try to use different NUM_ITERs for each tested numerical method.
 int NUM_ITER = 500;
 float DELTA_T = (1.0f/ NUM_ITER)*(1.0f / 60.0f); // Draw cloth every once per 1/60 sec.
-
+//float RK2_TEMP[4] = { 0, 0, 0 };
 
 /******************************************************************************************************/
 
@@ -257,7 +261,7 @@ void InitializeBuffers() {
 
     // We need buffers for position (2), element index,
     // velocity (2), normal, and texture coordinates.
-    glGenBuffers(7, cloth_BOs);
+    glGenBuffers(10, cloth_BOs);
     loc_curr_pos = cloth_BOs[0];
     loc_next_pos = cloth_BOs[1];
     loc_curr_vel = cloth_BOs[2];
@@ -265,8 +269,25 @@ void InitializeBuffers() {
     loc_normal = cloth_BOs[4];
     loc_element_indices = cloth_BOs[5];
     loc_texcoord = cloth_BOs[6];
-
+	x = cloth_BOs[7];
+	y = cloth_BOs[8];
+	z = cloth_BOs[9];
     // The buffers for positions
+	glBindBuffer(GL_ARRAY_BUFFER, x);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(GLfloat), NULL, GL_DYNAMIC_COPY);
+	rk2_tempx = clCreateFromGLBuffer(context, CL_MEM_READ_WRITE, x, &errcode_ret);
+	CHECK_ERROR_CODE(errcode_ret);
+
+	glBindBuffer(GL_ARRAY_BUFFER, y);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(GLfloat), NULL, GL_DYNAMIC_COPY);
+	rk2_tempy = clCreateFromGLBuffer(context, CL_MEM_READ_WRITE, y, &errcode_ret);
+	CHECK_ERROR_CODE(errcode_ret);
+
+	glBindBuffer(GL_ARRAY_BUFFER, z);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(GLfloat), NULL, GL_DYNAMIC_COPY);
+	rk2_tempz = clCreateFromGLBuffer(context, CL_MEM_READ_WRITE, z, &errcode_ret);
+	CHECK_ERROR_CODE(errcode_ret);
+
     glBindBuffer(GL_ARRAY_BUFFER, loc_curr_pos);
     glBufferData(GL_ARRAY_BUFFER, 4 * buffer_size * sizeof(GLfloat), &init_position[0], GL_DYNAMIC_DRAW);
     buf_pos[0] = clCreateFromGLBuffer(context, CL_MEM_READ_WRITE, loc_curr_pos, &errcode_ret);
@@ -311,6 +332,18 @@ void InitializeBuffers() {
     glGenVertexArrays(1, &cloth_VAO);
     glBindVertexArray(cloth_VAO);
 
+	glBindBuffer(GL_ARRAY_BUFFER, x);
+	glVertexAttribPointer(LOC_VERTEX, 1, GL_FLOAT, GL_FALSE, 0, 0);
+	glEnableVertexAttribArray(LOC_VERTEX);
+
+	glBindBuffer(GL_ARRAY_BUFFER, y);
+	glVertexAttribPointer(LOC_VERTEX, 1, GL_FLOAT, GL_FALSE, 0, 0);
+	glEnableVertexAttribArray(LOC_VERTEX);
+	
+	glBindBuffer(GL_ARRAY_BUFFER, z);
+	glVertexAttribPointer(LOC_VERTEX, 1, GL_FLOAT, GL_FALSE, 0, 0);
+	glEnableVertexAttribArray(LOC_VERTEX);
+
     glBindBuffer(GL_ARRAY_BUFFER, loc_curr_pos);
     glVertexAttribPointer(LOC_VERTEX, 4, GL_FLOAT, GL_FALSE, 0, 0);
     glEnableVertexAttribArray(LOC_VERTEX);
@@ -319,12 +352,13 @@ void InitializeBuffers() {
     glVertexAttribPointer(LOC_NORMAL, 4, GL_FLOAT, GL_FALSE, 0, 0);
     glEnableVertexAttribArray(LOC_NORMAL);
 
-    glBindBuffer(GL_ARRAY_BUFFER, loc_texcoord);
+	glBindBuffer(GL_ARRAY_BUFFER, loc_texcoord);
     glVertexAttribPointer(LOC_TEXCOORD, 2, GL_FLOAT, GL_FALSE, 0, 0);
     glEnableVertexAttribArray(LOC_TEXCOORD);
 
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, loc_element_indices);
-    glBindVertexArray(0);
+
+	glBindVertexArray(0);
 }
 
 bool InitializeOpenCL() {
@@ -443,7 +477,10 @@ void FinalizeOpenCL(void) {
     errcode_ret = clReleaseMemObject(buf_vel[0]);
     errcode_ret = clReleaseMemObject(buf_vel[1]);
     errcode_ret = clReleaseMemObject(buf_normal);
-    errcode_ret = clReleaseContext(context);
+	errcode_ret = clReleaseMemObject(rk2_tempx);
+	errcode_ret = clReleaseMemObject(rk2_tempy);
+	errcode_ret = clReleaseMemObject(rk2_tempz);
+	errcode_ret = clReleaseContext(context);
 }
 
 /******************************************************************************************************/
@@ -515,7 +552,13 @@ void display(void) {
     CHECK_ERROR_CODE(errcode_ret);
     errcode_ret = clEnqueueAcquireGLObjects(cmd_queue, 1, &buf_normal, 0, nullptr, nullptr);
     CHECK_ERROR_CODE(errcode_ret);
-    
+	errcode_ret = clEnqueueAcquireGLObjects(cmd_queue, 1, &rk2_tempx, 0, nullptr, nullptr);
+	CHECK_ERROR_CODE(errcode_ret);
+	errcode_ret = clEnqueueAcquireGLObjects(cmd_queue, 1, &rk2_tempy, 0, nullptr, nullptr);
+	CHECK_ERROR_CODE(errcode_ret);
+	errcode_ret = clEnqueueAcquireGLObjects(cmd_queue, 1, &rk2_tempz, 0, nullptr, nullptr);
+	CHECK_ERROR_CODE(errcode_ret);
+
     CHECK_TIME_START;
     for (int i = 0; i < NUM_ITER; i++) {
         errcode_ret  = clSetKernelArg(kernel[0], 0, sizeof(cl_mem), &buf_pos[read_buf]);
@@ -532,7 +575,13 @@ void display(void) {
         errcode_ret |= clSetKernelArg(kernel[0], 11, sizeof(float), &REST_LENGTH_DIAG);
         errcode_ret |= clSetKernelArg(kernel[0], 12, sizeof(float), &DELTA_T);
         errcode_ret |= clSetKernelArg(kernel[0], 13, sizeof(float), &DAMPING_CONST);
-        CHECK_ERROR_CODE(errcode_ret);
+		if (OPENCL_C_PROG_POS_FILE_NAME == "programs/cloth_position_global_modified2.cl")
+		{
+			errcode_ret |= clSetKernelArg(kernel[0], 14, sizeof(cl_mem), &rk2_tempx);
+			errcode_ret |= clSetKernelArg(kernel[0], 15, sizeof(cl_mem), &rk2_tempy);
+			errcode_ret |= clSetKernelArg(kernel[0], 16, sizeof(cl_mem), &rk2_tempz);
+		}
+		CHECK_ERROR_CODE(errcode_ret);
         read_buf = 1 - read_buf;
 
         errcode_ret = clEnqueueNDRangeKernel(cmd_queue, kernel[0], 2, nullptr, global_work_size, local_work_size, 0, nullptr, nullptr);
@@ -541,7 +590,8 @@ void display(void) {
     }
     errcode_ret  = clSetKernelArg(kernel[1], 0, sizeof(cl_mem), &buf_pos[0]);
     errcode_ret |= clSetKernelArg(kernel[1], 1, sizeof(cl_mem), &buf_normal);
-    errcode_ret |= clSetKernelArg(kernel[1], 2, 4 * (WORKGROUP_SIZE_X + 2) * (WORKGROUP_SIZE_Y + 2) * sizeof(float), NULL);
+	
+	errcode_ret |= clSetKernelArg(kernel[1], 2, 4 * (WORKGROUP_SIZE_X + 2) * (WORKGROUP_SIZE_Y + 2) * sizeof(float), NULL);
     CHECK_ERROR_CODE(errcode_ret);
     errcode_ret = clEnqueueNDRangeKernel(cmd_queue, kernel[1], 2, nullptr, global_work_size, local_work_size, 0, nullptr, nullptr);
     CHECK_ERROR_CODE(errcode_ret);
@@ -557,9 +607,9 @@ void display(void) {
     CHECK_ERROR_CODE(errcode_ret);
     errcode_ret = clEnqueueReleaseGLObjects(cmd_queue, 1, &buf_normal, 0, nullptr, nullptr);
     CHECK_ERROR_CODE(errcode_ret);
-
+	
     fprintf(stdout, "     * Time by CL kernel = %.3fms\n\n", compute_time);
-
+	
     // run OpenGL
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 

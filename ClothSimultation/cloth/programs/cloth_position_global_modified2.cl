@@ -11,7 +11,10 @@ void cloth_position(
 	float RestLengthVert,
 	float RestLengthDiag,
 	float DeltaT,
-	float DampingConst) {
+	float DampingConst,
+	__global float* rk2_tempx,
+	__global float* rk2_tempy,
+	__global float* rk2_tempz) {
 	int idx = get_global_id(0) + get_global_size(0) * get_global_id(1);
 
 	float4 r, r2;
@@ -117,10 +120,10 @@ void cloth_position(
 		r = pos_in[idx - get_global_size(0) + 1] - pos_in[idx];
 		force += normalize(r).xyz * SpringK * (length(r) - RestLengthDiag);
 	}
-
-	
+		
 	force += -DampingConst * v;
 	float3 a = force * ParticleInvMass;
+	
 	// Position of Particles
 	
 	pos_out[idx] = pos_in[idx] + vel_in[idx] * DeltaT + (float4)( (float)(0.5) * a * DeltaT * DeltaT, 0.0);
@@ -128,7 +131,7 @@ void cloth_position(
 
 	//Velocity of Particles                                                                
 	
-	vel_out[idx] = vel_in[idx] + (float4)((float)(0.5) * a * DeltaT, 0.0);
+	vel_out[idx] = vel_in[idx] + (float4)((float)(0.5) * a * DeltaT, 0.0) + (float4)((float)(0.5) * (float3)(*rk2_tempx, *rk2_tempy, *rk2_tempz ) *DeltaT, 0.0);
 	//Method 3 : Second-Order Runge-Kutta Method
 
 	
@@ -142,4 +145,9 @@ void cloth_position(
 		pos_out[idx] = pos_in[idx];
 		vel_out[idx] = (float4)(0, 0, 0, 0);
 	}
+
+	*rk2_tempx = a.x;
+	*rk2_tempy = a.y;
+	*rk2_tempz = a.z;
+
 }

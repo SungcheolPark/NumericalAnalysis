@@ -14,12 +14,10 @@ void cloth_position(
 	float DampingConst) {
 	int idx = get_global_id(0) + get_global_size(0) * get_global_id(1);
 
-	float4 r, r2;
+	float4 r;
 	float3 v = r.xyz;
-	float3 v2 = r2.xyz;
 	float3 force = Gravity * ParticleMass;
-	float4 force2, a1;// = Gravity * ParticleMass;
-
+	
 	if (get_global_id(1) < get_global_size(1) - 1)
 	{
 		r = pos_in[idx + get_global_size(0)] - pos_in[idx];
