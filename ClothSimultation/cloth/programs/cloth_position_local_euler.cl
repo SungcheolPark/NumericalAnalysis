@@ -21,37 +21,51 @@ void cloth_position(
 
 	local_data[local_idx] = pos_in[global_idx];  // position copy
 
-	if (get_local_id(0) == 0) {  // À§ÂÊ
+	if (get_local_id(0) == 0) 
+	{  // À§ÂÊ
 		local_data[get_local_id(0) + (get_local_size(0) + 2) * (get_local_id(1) + 1)] = pos_in[(get_global_id(0) - 1) + get_global_size(0) * get_global_id(1)];
 	}
-	if (get_local_id(1) == 0) {   // ¿ÞÂÊ
+
+	if (get_local_id(1) == 0) 
+	{   // ¿ÞÂÊ
 		local_data[(get_local_id(0) + 1) + (get_local_size(0) + 2) * get_local_id(1)] = pos_in[get_global_id(0) + get_global_size(0) * (get_global_id(1) - 1)];
 	}
-	if (get_local_id(0) == (get_local_size(0) - 1)) {  // ¾Æ·¡ÂÊ
+
+	if (get_local_id(0) == (get_local_size(0) - 1)) 
+	{  // ¾Æ·¡ÂÊ
 		local_data[(get_local_id(0) + 2) + (get_local_size(0) + 2) * (get_local_id(1) + 1)] = pos_in[(get_global_id(0) + 1) + get_global_size(0)* get_global_id(1)];
 	}
-	if (get_local_id(1) == (get_local_size(1) - 1)) {  // ¿À¸¥ÂÊ
+
+	if (get_local_id(1) == (get_local_size(1) - 1)) 
+	{  // ¿À¸¥ÂÊ
 		local_data[(get_local_id(0) + 1) + (get_local_size(0) + 2) * (get_local_id(1) + 2)] = pos_in[get_global_id(0) + get_global_size(0)* (get_global_id(1) + 1)];
 	}
 
 
 	/* corner */
-	if (get_local_id(0) == 0 && get_local_id(1) == 0) { // ¿ÞÂÊ À§ ±ÍÅüÀÌ
+	if (get_local_id(0) == 0 && get_local_id(1) == 0) 
+	{ // ¿ÞÂÊ À§ ±ÍÅüÀÌ
 		local_data[0] = pos_in[(get_global_id(0) - 1) + get_global_size(0)* (get_global_id(1) - 1)];
 	}
-	else if (get_local_id(0) == 0 && get_local_id(1) == (get_local_size(1) - 1)) {  // ¿À¸¥ÂÊ À§ ±ÍÅüÀÌ
+
+	else if (get_local_id(0) == 0 && get_local_id(1) == (get_local_size(1) - 1)) 
+	{  // ¿À¸¥ÂÊ À§ ±ÍÅüÀÌ
 		local_data[get_local_id(0) + (get_local_size(0) + 2) * (get_local_id(1) + 2)] = pos_in[(get_global_id(0) - 1) + get_global_size(0)* (get_global_id(1) + 1)];
 	}
-	else if (get_local_id(0) == (get_local_size(0) - 1) && get_local_id(1) == 0) {  // ¿ÞÂÊ ¾Æ·¡ ±ÍÅüÀÌ
+
+	else if (get_local_id(0) == (get_local_size(0) - 1) && get_local_id(1) == 0) 
+	{  // ¿ÞÂÊ ¾Æ·¡ ±ÍÅüÀÌ
 		local_data[(get_local_id(0) + 2) + (get_local_size(0) + 2) * get_local_id(1)] = pos_in[(get_global_id(0) + 1) + get_global_size(0)* (get_global_id(1) - 1)];
 	}
-	else if (get_local_id(0) == (get_local_size(0) - 1) && get_local_id(1) == (get_local_size(1) - 1)) {  // ¿À¸¥ÂÊ ¾Æ·¡ ±ÍÅüÀÌ
+
+	else if (get_local_id(0) == (get_local_size(0) - 1) && get_local_id(1) == (get_local_size(1) - 1)) 
+	{  // ¿À¸¥ÂÊ ¾Æ·¡ ±ÍÅüÀÌ
 		local_data[(get_local_id(0) + 2) + (get_local_size(0) + 2) * (get_local_id(1) + 2)] = pos_in[(get_global_id(0) + 1) + get_global_size(0)* (get_global_id(1) + 1)];
 	}
 
 	barrier(CLK_LOCAL_MEM_FENCE); // local memory fence
 
-								  //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 	if (get_global_id(1) < get_global_size(1) - 1)
 	{

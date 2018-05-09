@@ -40,19 +40,22 @@
     <None Include="shaders\phong.vert">
       <Filter>리소스 파일</Filter>
     </None>
-    <None Include="cloth_position_global_euler.cl">
+    <None Include="programs\cloth_position_global_euler.cl">
       <Filter>리소스 파일</Filter>
     </None>
-    <None Include="cloth_position_global_modfied_euler1.cl">
+    <None Include="programs\cloth_position_local.cl">
       <Filter>리소스 파일</Filter>
     </None>
-    <None Include="programs\cloth_position_global_modified_euler2.cl">
+    <None Include="programs\cloth_position_local_euler.cl">
       <Filter>리소스 파일</Filter>
     </None>
-    <None Include="cloth_position_local_euler.cl">
+    <None Include="programs\cloth_position_local_modified2.cl">
       <Filter>리소스 파일</Filter>
     </None>
-    <None Include="cloth_position_local_modified_euler1.cl">
+    <None Include="programs\cloth_position_global_modified1.cl">
+      <Filter>리소스 파일</Filter>
+    </None>
+    <None Include="programs\cloth_position_global_modified2.cl">
       <Filter>리소스 파일</Filter>
     </None>
   </ItemGroup>
