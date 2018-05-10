@@ -107,10 +107,15 @@ void cloth_position(
 
 	float3 a = force * ParticleInvMass;
 
-	//pos_out[idx] = pos_in[idx] + vel_in[idx] * DeltaT + (float4)( (float)(0.5) * a * DeltaT * DeltaT, 1.0);         //Method 2 :
-	pos_out[global_idx] = local_data[local_idx] + vel_in[global_idx] * DeltaT;               //Method 1 : First order Euler Method
-																							 //pos_out[idx] = pos_in[idx] + vel_in[idx + 0.5*DeltaT] * DeltaT;
+	// Position of Particles
+	
+	pos_out[global_idx] = local_data[local_idx] + vel_in[global_idx] * DeltaT + (float4)((float)(0.5) * a * DeltaT * DeltaT, 0.0);               
+	//Method 2 : 수업시간에 설명한 방법
+	
+	//Velocity of Particles           
+	
 	vel_out[global_idx] = vel_in[global_idx] + (float4)(a * DeltaT, 0.0);
+	//Method 2 : 수업시간에 설명한 방법
 
 	if (get_global_id(1) == get_global_size(1) - 1 &&
 		(get_global_id(0) == 0 ||

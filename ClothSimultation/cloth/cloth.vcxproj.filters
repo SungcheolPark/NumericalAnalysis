@@ -43,9 +43,6 @@
     <None Include="programs\cloth_position_global_euler.cl">
       <Filter>리소스 파일</Filter>
     </None>
-    <None Include="programs\cloth_position_local.cl">
-      <Filter>리소스 파일</Filter>
-    </None>
     <None Include="programs\cloth_position_local_euler.cl">
       <Filter>리소스 파일</Filter>
     </None>
@@ -56,6 +53,9 @@
       <Filter>리소스 파일</Filter>
     </None>
     <None Include="programs\cloth_position_global_modified2.cl">
+      <Filter>리소스 파일</Filter>
+    </None>
+    <None Include="programs\cloth_position_local_modified1.cl">
       <Filter>리소스 파일</Filter>
     </None>
   </ItemGroup>

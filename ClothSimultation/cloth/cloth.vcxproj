@@ -163,7 +163,7 @@
     <None Include="programs\cloth_position_global_euler.cl" />
     <None Include="programs\cloth_position_global_modified1.cl" />
     <None Include="programs\cloth_position_global_modified2.cl" />
-    <None Include="programs\cloth_position_local.cl" />
+    <None Include="programs\cloth_position_local_modified1.cl" />
     <None Include="programs\cloth_position_local_euler.cl" />
     <None Include="programs\cloth_position_local_modified2.cl" />
     <None Include="shaders\phong.frag" />

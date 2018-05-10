@@ -35,7 +35,7 @@ typedef struct _OPENCL_C_PROG_SRC {
     char *string;
 } OPENCL_C_PROG_SRC;
 
-#define OPENCL_C_PROG_POS_FILE_NAME "programs/cloth_position_global_modified1.cl"
+#define OPENCL_C_PROG_POS_FILE_NAME "programs/cloth_position_local.cl"
 #define OPENCL_C_PROG_NOR_FILE_NAME "programs/cloth_normal.cl"
 #define KERNEL_POS_NAME "cloth_position"
 #define KERNEL_NOR_NAME "cloth_normal"
