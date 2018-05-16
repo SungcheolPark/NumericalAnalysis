@@ -69,57 +69,7 @@ void cloth_position(
 		r = pos_in[idx - get_global_size(0) + 1] - pos_in[idx];
 		force += normalize(r).xyz * SpringK * (length(r) - RestLengthDiag);
 	}
-
-	if (get_global_id(1) < get_global_size(1) - 1)
-	{
-		r = pos_in[idx + get_global_size(0)] - pos_in[idx];
-		force += normalize(r).xyz * SpringK * (length(r) - RestLengthVert);
-	}
-
-	if (get_global_id(1) > 0)
-	{
-		r = pos_in[idx - get_global_size(0)] - pos_in[idx];
-		force += normalize(r).xyz * SpringK * (length(r) - RestLengthVert);
-	}
-
-	if (get_global_id(0) > 0)
-	{
-		r = pos_in[idx - 1] - pos_in[idx];
-		force += normalize(r).xyz * SpringK * (length(r) - RestLengthHoriz);
-	}
-
-	if (get_global_id(0) < get_global_size(0) - 1)
-	{
-		r = pos_in[idx + 1] - pos_in[idx];
-		force += normalize(r).xyz * SpringK * (length(r) - RestLengthHoriz);
-	}
-
-	// Diagonals
-
-	if (get_global_id(0) > 0 && get_global_id(1) < get_global_size(1) - 1)
-	{
-		r = pos_in[idx + get_global_size(0) - 1] - pos_in[idx];
-		force += normalize(r).xyz * SpringK * (length(r) - RestLengthDiag);
-	}
-
-	if (get_global_id(0) < get_global_size(0) - 1 && get_global_id(1) < get_global_size(1) - 1)
-	{
-		r = pos_in[idx + get_global_size(0) + 1] - pos_in[idx];
-		force += normalize(r).xyz * SpringK * (length(r) - RestLengthDiag);
-	}
-
-	if (get_global_id(0) > 0 && get_global_id(1) > 0)
-	{
-		r = pos_in[idx - get_global_size(0) - 1] - pos_in[idx];
-		force += normalize(r).xyz * SpringK * (length(r) - RestLengthDiag);
-	}
-
-	if (get_global_id(0) < get_global_size(0) - 1 && get_global_id(1) > 0)
-	{
-		r = pos_in[idx - get_global_size(0) + 1] - pos_in[idx];
-		force += normalize(r).xyz * SpringK * (length(r) - RestLengthDiag);
-	}
-
+	
 
 	force += -DampingConst * v;
 	float3 a = force * ParticleInvMass;

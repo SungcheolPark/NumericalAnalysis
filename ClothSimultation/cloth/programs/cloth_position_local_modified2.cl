@@ -120,7 +120,7 @@ void cloth_position(
 	//Get Next force for Runge-Kutta Method's k2.
 
 	force = Gravity * ParticleMass;
-
+	//rkf45_();
 	if (get_global_id(1) < get_global_size(1) - 1)
 	{
 		r = local_data[local_idx + (get_local_size(0) + 2)] - local_data[local_idx];

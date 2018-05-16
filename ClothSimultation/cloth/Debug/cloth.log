@@ -1,0 +1,5 @@
+﻿  main.cpp
+c:\users\parks\numericalanalysis\clothsimultation\cloth\main.cpp(30): fatal error C1083: 포함 파일을 열 수 없습니다. 'CL/cl.h': No such file or directory
+  LoadShaders.cpp
+c:\users\parks\numericalanalysis\clothsimultation\cloth\shaders\loadshaders.cpp(4): fatal error C1083: 포함 파일을 열 수 없습니다. 'GL/glew.h': No such file or directory
+  코드를 생성하고 있습니다...

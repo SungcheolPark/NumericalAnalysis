@@ -3,14 +3,20 @@
 #include <math.h>
 #include <string.h>
 #include <time.h>
+#include "rkf45.h"
+#define NEQN 2
+//double work[3 + 6 * NEQN + 10];
+//int iwork[10], neqn = NEQN;
 
+//rkf45_();
+//int rkf45_(void ODE_I(double *, double*, double*), int *, double*, double*, double*, double*, double*, int*, double*, int*);
 /******************************************************************************************************/
 #ifdef __APPLE__
 #include <mach/mach_time.h>
 uint64_t _start, _end;
 mach_timebase_info_data_t sTimebaseInfo;
 #define CHECK_TIME_START _start = mach_absolute_time()
-#define CHECK_TIME_END(a) _end = mach_absolute_time();  if (sTimebaseInfo.denom == 0) { mach_timebase_info(&sTimebaseInfo); }  \
+#define CHECK_TIME_END(a) _end = mach_absolute_time();  if (sTimebaseInfo.denom == 0) { mach_timebase_info(&sTimebaseInfo); }  
 a = (_end - _start) * sTimebaseInfo.numer / sTimebaseInfo.denom * 1.0e-6f
 #else
 #include <Windows.h>
@@ -35,7 +41,7 @@ typedef struct _OPENCL_C_PROG_SRC {
     char *string;
 } OPENCL_C_PROG_SRC;
 
-#define OPENCL_C_PROG_POS_FILE_NAME "programs/cloth_position_local.cl"
+#define OPENCL_C_PROG_POS_FILE_NAME "programs/cloth_position_global_modified2.cl"
 #define OPENCL_C_PROG_NOR_FILE_NAME "programs/cloth_normal.cl"
 #define KERNEL_POS_NAME "cloth_position"
 #define KERNEL_NOR_NAME "cloth_normal"
@@ -114,6 +120,9 @@ GLuint x = 0, y = 0, z = 0;
 
 GLuint cloth_VAO;
 GLuint cloth_BOs[7];
+//GLfloat cpu_position[NUM_PARTICLES_X][NUM_PARTICLES_Y];
+//GLfloat cpu_prevposition[NUM_PARTICLES_X][NUM_PARTICLES_Y];
+//GLfloat cpu_velocity[NUM_PARTICLES_X * NUM_PARTICLES_Y][3];
 
 // include glm/*.hpp only if necessary
 //#include <glm/glm.hpp> 
@@ -122,7 +131,12 @@ GLuint cloth_BOs[7];
 glm::mat4 ModelViewProjectionMatrix, ModelViewMatrix;
 glm::mat3 ModelViewMatrixInvTrans;
 glm::mat4 ViewMatrix, ProjectionMatrix;
-
+glm::vec4 cpu_position[64][64];
+glm::vec4 cpu_prevposition[64][64];
+glm::vec4 cpu_velocity = { 0.0f, 0.0f, 0.0f, 0.0f };
+//glm::vec3 cpu_velocity; //= (float*)malloc(sizeof(float)*buffer_size);
+//glm::vec3 cpu_position[NUM_PARTICLES_X][NUM_PARTICLES_Y]; //= (float*)malloc(sizeof(float)*buffer_size);
+//glm::vec3 cpu_prevposition[NUM_PARTICLES_X][NUM_PARTICLES_Y];
 #define TO_RADIAN 0.01745329252f  
 #define TO_DEGREE 57.295779513f
 #define BUFFER_OFFSET(offset) ((GLvoid *) (offset))
@@ -219,6 +233,12 @@ void InitializeBuffers() {
 
     // Initial positions of the particles
     int buffer_size = NUM_PARTICLES_X * NUM_PARTICLES_Y;
+	//cpu_position = (GLfloat*)malloc(4 * buffer_size * sizeof(GLfloat));
+	//cpu_velocity = (GLfloat*)malloc(4 * buffer_size * sizeof(GLfloat));
+	//memset(cpu_velocity, 0, 4 * buffer_size * sizeof(GLfloat));
+	//cpu_velocity = { 0.0f, 0.0f, 0.0f };
+	//errcode_ret = clEnqueueReadBuffer(cmd_queue, buf_pos[0], CL_FALSE, 0, 4 * buffer_size * sizeof(float), &cpu_position, 0, NULL, NULL);
+	//errcode_ret = clEnqueueReadBuffer(cmd_queue, buf_pos[0], CL_FALSE, 0, 4 * buffer_size * sizeof(float), &cpu_velocity, 0, NULL, NULL);
     GLfloat* init_position = (GLfloat*)malloc(4 * buffer_size * sizeof(GLfloat));
     GLfloat* init_velocity = (GLfloat*)malloc(4 * buffer_size * sizeof(GLfloat));
     memset(init_velocity, 0, 4 * buffer_size * sizeof(GLfloat));
@@ -229,7 +249,7 @@ void InitializeBuffers() {
     float ds = 1.0f / (NUM_PARTICLES_X - 1);
     float dt = 1.0f / (NUM_PARTICLES_Y - 1);
 
-    int pos_idx = 0, tc_idx = 0;
+    int pos_idx = 0, tc_idx = 0, cpu_idx = 0;
     glm::vec4 p(0.0f, 0.0f, 0.0f, 1.0f);
     for (int i = 0; i < NUM_PARTICLES_Y; i++) {
         for (int j = 0; j < NUM_PARTICLES_X; j++) {
@@ -238,12 +258,17 @@ void InitializeBuffers() {
             p.z = 0.0f;
             p = transf * p;
 
+			//cpu_position[j][i] = p.x;
             init_position[pos_idx++] = p.x;
-            init_position[pos_idx++] = p.y;
+			//cpu_position[cpu_idx++] = p.y;
+			init_position[pos_idx++] = p.y;
+			//cpu_position[cpu_idx++] = p.z;
             init_position[pos_idx++] = p.z;
+			//cpu_position[cpu_idx++] = 1.0f;
             init_position[pos_idx++] = 1.0f;
-
-            init_texcoord[tc_idx++] = ds * j;
+			
+			cpu_position[j][i] = p;
+			init_texcoord[tc_idx++] = ds * j;
             init_texcoord[tc_idx++] = dt * i;
         }
     }
@@ -534,16 +559,132 @@ void FinalizeOpenGL(void) {
 
     glDeleteTextures(N_TEXTURES_USED, texture_names);
 }
+float normalize(glm::vec4 a)
+{
+	return sqrt(a.x*a.x + a.y*a.y + a.z*a.z + a.w*a.w);
+}
 
-void display(void) {
+void CalcPosition()
+{
+	
+	cl_int errcode_ret;
+	int buffer_size = NUM_PARTICLES_X * NUM_PARTICLES_Y;
+	int i, j;
+	glm::vec4 force = { 0.0f, 0.0f, 0.0f,0.0f };
+	glm::vec4 accel = { 0.0f, 0.0f, 0.0f,0.0f };
+	glm::vec4 spring = { 0.0f, 0.0f, 0.0f,0.0f };
+	glm::vec4 r = { 0.0f, 0.0f, 0.0f, 0.0f };
+	//memcpy(cpu_prevposition, cpu_position, sizeof(float)*buffer_size);
+	//memcpy(cpu_prevposition, cpu_position,sizeof(glm::vec4))*buffer_size;
+	for (i = 0; i < NUM_PARTICLES_X; i++)
+	{
+		for (j = 0; j < NUM_PARTICLES_Y; j++)
+		{
+			if (j < NUM_PARTICLES_Y - 1)			//execpt above
+			{
+				r = cpu_position[i][j + 1] - cpu_position[i][j];
+				spring += SPRING_K * (normalize(r) - REST_LENGTH_VERT) * (normalize(r) * r);
+			}
+
+			if (j > 0)
+			{
+				r = cpu_position[i][j - 1] - cpu_position[i][j];
+				spring += SPRING_K * (normalize(r) - REST_LENGTH_VERT) * (normalize(r) * r);
+			}
+
+			if (i > 0)
+			{
+				r = cpu_position[i - 1][j] - cpu_position[i][j];
+				spring += SPRING_K * (normalize(r) - REST_LENGTH_HORIZ) * (normalize(r) * r);
+			}
+
+			if (i < NUM_PARTICLES_X - 1)
+			{
+				r = cpu_position[i + 1][j] - cpu_position[i][j];
+				spring += SPRING_K * (normalize(r) - REST_LENGTH_HORIZ) * (normalize(r) * r);
+			}
+
+			if (j < NUM_PARTICLES_Y - 1 && i > 0)
+			{
+				r = cpu_position[i - 1][j + 1] - cpu_position[i][j];
+				spring += SPRING_K * (normalize(r) - REST_LENGTH_DIAG) * (normalize(r) * r);
+			}
+
+			if (j < NUM_PARTICLES_Y - 1 && i < NUM_PARTICLES_X - 1)
+			{
+				r = cpu_position[i + 1][j + 1] - cpu_position[i][j];
+				spring += SPRING_K * (normalize(r) - REST_LENGTH_DIAG) * (normalize(r) * r);
+			}
+
+			if (j > 0 && i < NUM_PARTICLES_X - 1)
+			{
+				r = cpu_position[i + 1][j - 1] - cpu_position[i][j];
+				spring += SPRING_K * (normalize(r) - REST_LENGTH_DIAG) * (normalize(r) * r);
+			}
+			if (j > 0 && i > 0)
+			{
+				r = cpu_position[i - 1][j - 1] - cpu_position[i][j];
+				spring += SPRING_K * (normalize(r) - REST_LENGTH_DIAG) * (normalize(r) * r);
+			}
+
+		}
+	}
+	
+	force += spring;
+	force += -DAMPING_CONST * cpu_velocity;
+	accel = force * PARTICLE_INV_MASS;
+	cpu_velocity += accel * DELTA_T;
+
+}
+
+void display(void) 
+{
+	
     cl_int errcode_ret;
     float compute_time;
     int read_buf = 0;
-
+	int buffer_size = NUM_PARTICLES_X * NUM_PARTICLES_Y;
     size_t global_work_size[3] = { NUM_PARTICLES_X, NUM_PARTICLES_Y, 0 };
     size_t local_work_size[3] = { WORKGROUP_SIZE_X, WORKGROUP_SIZE_Y, 0 };
+	//*********************************
+	
+	CHECK_TIME_START;
 
+	// Position, Velocity 계산 (실제로 구현해야 할 부분)
+
+	CalcPosition();
+	
+	// Position, Velocity 데이터 넘김 (CPU -> GPU)
+	glBindBuffer(GL_ARRAY_BUFFER, loc_curr_pos);
+	glBufferData(GL_ARRAY_BUFFER, 4 * buffer_size * sizeof(GLfloat), &cpu_position[0], GL_DYNAMIC_DRAW);
+	glBindBuffer(GL_ARRAY_BUFFER, loc_curr_vel);
+	glBufferData(GL_ARRAY_BUFFER, 4 * buffer_size * sizeof(GLfloat), &cpu_velocity[0], GL_DYNAMIC_COPY);
+
+	// 권한 얻어옴 (OpenGL -> OpenCL)
+	glFlush();
+	glFinish();
+	errcode_ret = clEnqueueAcquireGLObjects(cmd_queue, 2, buf_pos, 0, nullptr, nullptr);
+	CHECK_ERROR_CODE(errcode_ret);
+	errcode_ret = clEnqueueAcquireGLObjects(cmd_queue, 2, buf_vel, 0, nullptr, nullptr);
+	CHECK_ERROR_CODE(errcode_ret);
+	errcode_ret = clEnqueueAcquireGLObjects(cmd_queue, 1, &buf_normal, 0, nullptr, nullptr);
+	CHECK_ERROR_CODE(errcode_ret);
+
+	// 넘긴 데이터로부터 Normal 구함 (이 부분은 렌더링을 위한 부분으로 이번 과제에서 고정)
+	errcode_ret  = clSetKernelArg(kernel[1], 0, sizeof(cl_mem), &buf_pos[0]);
+	errcode_ret |= clSetKernelArg(kernel[1], 1, sizeof(cl_mem), &buf_normal);
+	errcode_ret |= clSetKernelArg(kernel[1], 2, 4 * (WORKGROUP_SIZE_X + 2) * (WORKGROUP_SIZE_Y + 2) * sizeof(float), NULL);
+	CHECK_ERROR_CODE(errcode_ret);
+	errcode_ret = clEnqueueNDRangeKernel(cmd_queue, kernel[1], 2, nullptr, global_work_size, local_work_size, 0, nullptr, nullptr);
+	CHECK_ERROR_CODE(errcode_ret);
+
+	clFinish(cmd_queue);
+	
+	CHECK_TIME_END(compute_time);
+	
+	//*////////////////////////////////
     // run OpenCL kernel
+	
     glFlush();
     glFinish();
     errcode_ret = clEnqueueAcquireGLObjects(cmd_queue, 2, buf_pos, 0, nullptr, nullptr);
@@ -598,7 +739,7 @@ void display(void) {
 
     clFinish(cmd_queue);
     CHECK_TIME_END(compute_time);
-
+	
     clFlush(cmd_queue);
     clFinish(cmd_queue);
     errcode_ret = clEnqueueReleaseGLObjects(cmd_queue, 2, buf_pos, 0, nullptr, nullptr);

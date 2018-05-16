@@ -3,7 +3,6 @@
 
 #include <GL/glew.h>
 #include "LoadShaders.h"
-
 //----------------------------------------------------------------------------
 
 GLchar* ReadShader(const char* filename) {
