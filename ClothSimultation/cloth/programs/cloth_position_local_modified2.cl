@@ -16,7 +16,7 @@ void cloth_position(
 	int local_idx = (get_local_id(0) + 1) + (get_local_size(0) + 2) * (get_local_id(1) + 1);
 
 	float4 r;
-	float3 v = r.xyz;
+	float3 v = vel_in[idx].xyz;
 	float3 force = Gravity * ParticleMass;
 
 	local_data[local_idx] = pos_in[global_idx];  // position copy
@@ -110,7 +110,7 @@ void cloth_position(
 	// Position of Particles
 
 	pos_out[global_idx] = local_data[local_idx] + vel_in[global_idx] * DeltaT + (float4)(a * DeltaT * DeltaT / 2, 0.0); 
-	//Method 2 : 수업시간에 설명한 방법
+	//Method 2 
 	
 	local_data[local_idx] += vel_in[global_idx] * DeltaT;
 
@@ -120,7 +120,7 @@ void cloth_position(
 	//Get Next force for Runge-Kutta Method's k2.
 
 	force = Gravity * ParticleMass;
-	//rkf45_();
+	
 	if (get_global_id(1) < get_global_size(1) - 1)
 	{
 		r = local_data[local_idx + (get_local_size(0) + 2)] - local_data[local_idx];
@@ -179,8 +179,7 @@ void cloth_position(
 
 	//Velocity of Particles                                                                
 
-	//vel_out[idx] = vel_in[idx] + (float4)(a * DeltaT, 0.0);
-	//Method 2 : 수업시간에 설명한 방법
+	//Method 3 
 
 	if (get_global_id(1) == get_global_size(1) - 1 &&
 		(get_global_id(0) == 0 ||

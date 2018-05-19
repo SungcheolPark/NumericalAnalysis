@@ -15,7 +15,7 @@ void cloth_position(
 	int idx = get_global_id(0) + get_global_size(0) * get_global_id(1);
 
 	float4 r;
-	float3 v = r.xyz;
+	float3 v = vel_in[idx].xyz;
 	float3 force = Gravity * ParticleMass;
 	
 	if (get_global_id(1) < get_global_size(1) - 1)
@@ -68,14 +68,13 @@ void cloth_position(
 		force += normalize(r).xyz * SpringK * (length(r) - RestLengthDiag);
 	}
 
-	
 
 	force += -DampingConst * v;
 	float3 a = force * ParticleInvMass;
 	
 	// Position of Particles
 
-	pos_out[idx] = pos_in[idx] + vel_in[idx] * DeltaT + (float4)((float)(0.5) * a * DeltaT * DeltaT, 0.0);
+	pos_out[idx] = pos_in[idx] + vel_in[idx] * DeltaT + (float4)( a * DeltaT * DeltaT / 2, 0.0);
 	//Method 2 : 수업시간에 설명한 방법
 
 	//Velocity of Particles                                                                

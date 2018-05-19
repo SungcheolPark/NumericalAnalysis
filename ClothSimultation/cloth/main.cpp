@@ -4,11 +4,8 @@
 #include <string.h>
 #include <time.h>
 #include "rkf45.h"
-#define NEQN 2
-//double work[3 + 6 * NEQN + 10];
-//int iwork[10], neqn = NEQN;
 
-//rkf45_();
+
 //int rkf45_(void ODE_I(double *, double*, double*), int *, double*, double*, double*, double*, double*, int*, double*, int*);
 /******************************************************************************************************/
 #ifdef __APPLE__
@@ -133,7 +130,9 @@ glm::mat3 ModelViewMatrixInvTrans;
 glm::mat4 ViewMatrix, ProjectionMatrix;
 glm::vec4 cpu_position[64][64];
 glm::vec4 cpu_prevposition[64][64];
-glm::vec4 cpu_velocity = { 0.0f, 0.0f, 0.0f, 0.0f };
+glm::vec4 cpu_velocity[64][64];
+glm::vec4 cpu_prevvelocity[64][64];
+double ACC[3];
 //glm::vec3 cpu_velocity; //= (float*)malloc(sizeof(float)*buffer_size);
 //glm::vec3 cpu_position[NUM_PARTICLES_X][NUM_PARTICLES_Y]; //= (float*)malloc(sizeof(float)*buffer_size);
 //glm::vec3 cpu_prevposition[NUM_PARTICLES_X][NUM_PARTICLES_Y];
@@ -177,12 +176,14 @@ float REST_LENGTH_DIAG;
 
 const float GRAVITY[4] = { 0, -9.80665 , 0 };
 const float DAMPING_CONST = 0.01;
-
+glm::vec4 prev_temp2[64][64];
 // Try to use different NUM_ITERs for each tested numerical method.
-int NUM_ITER = 500;
+int NUM_ITER;// = 500;
 float DELTA_T = (1.0f/ NUM_ITER)*(1.0f / 60.0f); // Draw cloth every once per 1/60 sec.
-//float RK2_TEMP[4] = { 0, 0, 0 };
-
+//glm::vec4 RK_temp = { 0.0f, 0.0f, 0.0f, 0.0f };
+#define NEQN 6
+double t1 = 0.0;
+double tinit1 = 0.0;
 /******************************************************************************************************/
 
 char* strnstr(const char *s, const char *find, size_t slen) {
@@ -233,13 +234,7 @@ void InitializeBuffers() {
 
     // Initial positions of the particles
     int buffer_size = NUM_PARTICLES_X * NUM_PARTICLES_Y;
-	//cpu_position = (GLfloat*)malloc(4 * buffer_size * sizeof(GLfloat));
-	//cpu_velocity = (GLfloat*)malloc(4 * buffer_size * sizeof(GLfloat));
-	//memset(cpu_velocity, 0, 4 * buffer_size * sizeof(GLfloat));
-	//cpu_velocity = { 0.0f, 0.0f, 0.0f };
-	//errcode_ret = clEnqueueReadBuffer(cmd_queue, buf_pos[0], CL_FALSE, 0, 4 * buffer_size * sizeof(float), &cpu_position, 0, NULL, NULL);
-	//errcode_ret = clEnqueueReadBuffer(cmd_queue, buf_pos[0], CL_FALSE, 0, 4 * buffer_size * sizeof(float), &cpu_velocity, 0, NULL, NULL);
-    GLfloat* init_position = (GLfloat*)malloc(4 * buffer_size * sizeof(GLfloat));
+	GLfloat* init_position = (GLfloat*)malloc(4 * buffer_size * sizeof(GLfloat));
     GLfloat* init_velocity = (GLfloat*)malloc(4 * buffer_size * sizeof(GLfloat));
     memset(init_velocity, 0, 4 * buffer_size * sizeof(GLfloat));
 
@@ -249,7 +244,7 @@ void InitializeBuffers() {
     float ds = 1.0f / (NUM_PARTICLES_X - 1);
     float dt = 1.0f / (NUM_PARTICLES_Y - 1);
 
-    int pos_idx = 0, tc_idx = 0, cpu_idx = 0;
+    int pos_idx = 0, tc_idx = 0;
     glm::vec4 p(0.0f, 0.0f, 0.0f, 1.0f);
     for (int i = 0; i < NUM_PARTICLES_Y; i++) {
         for (int j = 0; j < NUM_PARTICLES_X; j++) {
@@ -258,16 +253,13 @@ void InitializeBuffers() {
             p.z = 0.0f;
             p = transf * p;
 
-			//cpu_position[j][i] = p.x;
-            init_position[pos_idx++] = p.x;
-			//cpu_position[cpu_idx++] = p.y;
+		    init_position[pos_idx++] = p.x;
 			init_position[pos_idx++] = p.y;
-			//cpu_position[cpu_idx++] = p.z;
-            init_position[pos_idx++] = p.z;
-			//cpu_position[cpu_idx++] = 1.0f;
-            init_position[pos_idx++] = 1.0f;
+			init_position[pos_idx++] = p.z;
+			init_position[pos_idx++] = 1.0f;
 			
-			cpu_position[j][i] = p;
+			cpu_position[i][j] = p;
+			cpu_velocity[i][j] = { 0.0f, 0.0f, 0.0f, 0.0f };
 			init_texcoord[tc_idx++] = ds * j;
             init_texcoord[tc_idx++] = dt * i;
         }
@@ -564,103 +556,810 @@ float normalize(glm::vec4 a)
 	return sqrt(a.x*a.x + a.y*a.y + a.z*a.z + a.w*a.w);
 }
 
-void CalcPosition()
+void CalcPosition_euler(void)
 {
-	
 	cl_int errcode_ret;
 	int buffer_size = NUM_PARTICLES_X * NUM_PARTICLES_Y;
 	int i, j;
 	glm::vec4 force = { 0.0f, 0.0f, 0.0f,0.0f };
 	glm::vec4 accel = { 0.0f, 0.0f, 0.0f,0.0f };
-	glm::vec4 spring = { 0.0f, 0.0f, 0.0f,0.0f };
 	glm::vec4 r = { 0.0f, 0.0f, 0.0f, 0.0f };
-	//memcpy(cpu_prevposition, cpu_position, sizeof(float)*buffer_size);
-	//memcpy(cpu_prevposition, cpu_position,sizeof(glm::vec4))*buffer_size;
-	for (i = 0; i < NUM_PARTICLES_X; i++)
+	
+	//for initialize prev pos & vel.
+	for (i = 0; i < NUM_PARTICLES_Y; i++)
 	{
-		for (j = 0; j < NUM_PARTICLES_Y; j++)
+		for (j = 0; j < NUM_PARTICLES_X; j++)
 		{
-			if (j < NUM_PARTICLES_Y - 1)			//execpt above
-			{
-				r = cpu_position[i][j + 1] - cpu_position[i][j];
-				spring += SPRING_K * (normalize(r) - REST_LENGTH_VERT) * (normalize(r) * r);
-			}
+			cpu_prevposition[i][j] = cpu_position[i][j];
+			cpu_prevvelocity[i][j] = cpu_velocity[i][j];
+		}
+	}
 
-			if (j > 0)
+	for (i = 0; i < NUM_PARTICLES_Y; i++)
+	{
+		for (j = 0; j < NUM_PARTICLES_X; j++)
+		{
+			//initialize force. (calculate gravity part)
+			force = { GRAVITY[0] * PARTICLE_MASS, GRAVITY[1] * PARTICLE_MASS, GRAVITY[2] * PARTICLE_MASS, 0.0f};
+			
+			//calculate spring force(8 cases)
+			//Right
+			if (j < NUM_PARTICLES_X - 1)								
 			{
-				r = cpu_position[i][j - 1] - cpu_position[i][j];
-				spring += SPRING_K * (normalize(r) - REST_LENGTH_VERT) * (normalize(r) * r);
+				r = cpu_prevposition[i][j + 1] - cpu_prevposition[i][j];
+				force += SPRING_K * (normalize(r) - REST_LENGTH_HORIZ) * glm::normalize(r);
 			}
-
+			//Left
+			if (j > 0)												
+			{
+				r = cpu_prevposition[i][j - 1] - cpu_prevposition[i][j];
+				force += SPRING_K * (normalize(r) - REST_LENGTH_HORIZ) * glm::normalize(r);
+			}
+			//Down
 			if (i > 0)
 			{
-				r = cpu_position[i - 1][j] - cpu_position[i][j];
-				spring += SPRING_K * (normalize(r) - REST_LENGTH_HORIZ) * (normalize(r) * r);
+				r = cpu_prevposition[i - 1][j] - cpu_prevposition[i][j];
+				force += SPRING_K * (normalize(r) - REST_LENGTH_VERT) * glm::normalize(r);
+			}
+			//Up
+			if (i < NUM_PARTICLES_Y - 1)
+			{
+				r = cpu_prevposition[i + 1][j] - cpu_prevposition[i][j];
+				force += SPRING_K * (normalize(r) - REST_LENGTH_VERT) * glm::normalize(r);
 			}
 
-			if (i < NUM_PARTICLES_X - 1)
+			//Diagnoals
+			if (j < NUM_PARTICLES_X - 1 && i > 0)
 			{
-				r = cpu_position[i + 1][j] - cpu_position[i][j];
-				spring += SPRING_K * (normalize(r) - REST_LENGTH_HORIZ) * (normalize(r) * r);
+				r = cpu_prevposition[i - 1][j + 1] - cpu_prevposition[i][j];
+				force += SPRING_K * (normalize(r) - REST_LENGTH_DIAG) * glm::normalize(r);
 			}
 
-			if (j < NUM_PARTICLES_Y - 1 && i > 0)
+			if (j < NUM_PARTICLES_X - 1 && i < NUM_PARTICLES_Y - 1)
 			{
-				r = cpu_position[i - 1][j + 1] - cpu_position[i][j];
-				spring += SPRING_K * (normalize(r) - REST_LENGTH_DIAG) * (normalize(r) * r);
+				r = cpu_prevposition[i + 1][j + 1] - cpu_prevposition[i][j];
+				force += SPRING_K * (normalize(r) - REST_LENGTH_DIAG) * glm::normalize(r);
 			}
 
-			if (j < NUM_PARTICLES_Y - 1 && i < NUM_PARTICLES_X - 1)
+			if (j > 0 && i < NUM_PARTICLES_Y - 1)
 			{
-				r = cpu_position[i + 1][j + 1] - cpu_position[i][j];
-				spring += SPRING_K * (normalize(r) - REST_LENGTH_DIAG) * (normalize(r) * r);
+				r = cpu_prevposition[i + 1][j - 1] - cpu_prevposition[i][j];
+				force += SPRING_K * (normalize(r) - REST_LENGTH_DIAG) * glm::normalize(r);
 			}
 
-			if (j > 0 && i < NUM_PARTICLES_X - 1)
-			{
-				r = cpu_position[i + 1][j - 1] - cpu_position[i][j];
-				spring += SPRING_K * (normalize(r) - REST_LENGTH_DIAG) * (normalize(r) * r);
-			}
 			if (j > 0 && i > 0)
 			{
-				r = cpu_position[i - 1][j - 1] - cpu_position[i][j];
-				spring += SPRING_K * (normalize(r) - REST_LENGTH_DIAG) * (normalize(r) * r);
+				r = cpu_prevposition[i - 1][j - 1] - cpu_prevposition[i][j];
+				force += SPRING_K * (normalize(r) - REST_LENGTH_DIAG) * glm::normalize(r);
+			}
+			
+			force -= DAMPING_CONST * cpu_prevvelocity[i][j];
+			accel = force * PARTICLE_INV_MASS;
+		
+			cpu_position[i][j] = cpu_prevposition[i][j] + cpu_prevvelocity[i][j] * DELTA_T;
+			cpu_velocity[i][j] = cpu_prevvelocity[i][j] + accel * DELTA_T;
+
+			//set 5 pins.
+			if (i == NUM_PARTICLES_X - 1 &&
+				(j == 0 || j == (NUM_PARTICLES_X-1) / 4 || j == (NUM_PARTICLES_X-1) * 2 / 4 ||
+					j == (NUM_PARTICLES_X-1) * 3 / 4 || j == NUM_PARTICLES_X - 1))
+			{
+				cpu_position[i][j] = cpu_prevposition[i][j];
+				cpu_velocity[i][j] = { 0.0f, 0.0f, 0.0f, 0.0f };
+			}
+			
+		}
+	}
+	
+}
+
+void CalcPosition_modified1(void)
+{
+	cl_int errcode_ret;
+	int buffer_size = NUM_PARTICLES_X * NUM_PARTICLES_Y;
+	int i, j;
+	glm::vec4 force = { 0.0f, 0.0f, 0.0f,0.0f };
+	glm::vec4 accel = { 0.0f, 0.0f, 0.0f,0.0f };
+	glm::vec4 r = { 0.0f, 0.0f, 0.0f, 0.0f };
+
+	//for initialize prev pos & vel.
+	for (i = 0; i < NUM_PARTICLES_Y; i++)
+	{
+		for (j = 0; j < NUM_PARTICLES_X; j++)
+		{
+			cpu_prevposition[i][j] = cpu_position[i][j];
+			cpu_prevvelocity[i][j] = cpu_velocity[i][j];
+		}
+	}
+
+	for (i = 0; i < NUM_PARTICLES_Y; i++)
+	{
+		for (j = 0; j < NUM_PARTICLES_X; j++)
+		{
+			//initialize force. (calculate gravity part)
+			force = { GRAVITY[0] * PARTICLE_MASS, GRAVITY[1] * PARTICLE_MASS, GRAVITY[2] * PARTICLE_MASS, 0.0f };
+
+			//calculate spring force(8 cases)
+			//Right
+			if (j < NUM_PARTICLES_X - 1)
+			{
+				r = cpu_prevposition[i][j + 1] - cpu_prevposition[i][j];
+				force += SPRING_K * (normalize(r) - REST_LENGTH_HORIZ) * glm::normalize(r);
+			}
+			//Left
+			if (j > 0)
+			{
+				r = cpu_prevposition[i][j - 1] - cpu_prevposition[i][j];
+				force += SPRING_K * (normalize(r) - REST_LENGTH_HORIZ) * glm::normalize(r);
+			}
+			//Down
+			if (i > 0)
+			{
+				r = cpu_prevposition[i - 1][j] - cpu_prevposition[i][j];
+				force += SPRING_K * (normalize(r) - REST_LENGTH_VERT) * glm::normalize(r);
+			}
+			//Up
+			if (i < NUM_PARTICLES_Y - 1)
+			{
+				r = cpu_prevposition[i + 1][j] - cpu_prevposition[i][j];
+				force += SPRING_K * (normalize(r) - REST_LENGTH_VERT) * glm::normalize(r);
+			}
+
+			//Diagnoals
+			if (j < NUM_PARTICLES_X - 1 && i > 0)
+			{
+				r = cpu_prevposition[i - 1][j + 1] - cpu_prevposition[i][j];
+				force += SPRING_K * (normalize(r) - REST_LENGTH_DIAG) * glm::normalize(r);
+			}
+
+			if (j < NUM_PARTICLES_X - 1 && i < NUM_PARTICLES_Y - 1)
+			{
+				r = cpu_prevposition[i + 1][j + 1] - cpu_prevposition[i][j];
+				force += SPRING_K * (normalize(r) - REST_LENGTH_DIAG) * glm::normalize(r);
+			}
+
+			if (j > 0 && i < NUM_PARTICLES_Y - 1)
+			{
+				r = cpu_prevposition[i + 1][j - 1] - cpu_prevposition[i][j];
+				force += SPRING_K * (normalize(r) - REST_LENGTH_DIAG) * glm::normalize(r);
+			}
+
+			if (j > 0 && i > 0)
+			{
+				r = cpu_prevposition[i - 1][j - 1] - cpu_prevposition[i][j];
+				force += SPRING_K * (normalize(r) - REST_LENGTH_DIAG) * glm::normalize(r);
+			}
+
+			force -= DAMPING_CONST * cpu_prevvelocity[i][j];
+			accel = force * PARTICLE_INV_MASS;
+
+			cpu_position[i][j] = cpu_prevposition[i][j] + cpu_prevvelocity[i][j] * DELTA_T
+				+ accel * DELTA_T * DELTA_T * (float)(0.5);
+			cpu_velocity[i][j] = cpu_prevvelocity[i][j] + accel * DELTA_T;
+
+			//set 5 pins.
+			if (i == NUM_PARTICLES_X - 1 &&
+				(j == 0 || j == (NUM_PARTICLES_X - 1) / 4 || j == (NUM_PARTICLES_X - 1) * 2 / 4 ||
+					j == (NUM_PARTICLES_X - 1) * 3 / 4 || j == NUM_PARTICLES_X - 1))
+			{
+				cpu_position[i][j] = cpu_prevposition[i][j];
+				cpu_velocity[i][j] = { 0.0f, 0.0f, 0.0f, 0.0f };
+			}
+
+		}
+	}
+
+}
+
+void CalcPosition_modified2(void)
+{
+	cl_int errcode_ret;
+	int buffer_size = NUM_PARTICLES_X * NUM_PARTICLES_Y;
+	int i, j;
+	glm::vec4 force = { 0.0f, 0.0f, 0.0f,0.0f };
+	glm::vec4 force2 = { 0.0f, 0.0f, 0.0f,0.0f };
+	glm::vec4 accel[NUM_PARTICLES_Y][NUM_PARTICLES_X];
+	glm::vec4 r = { 0.0f, 0.0f, 0.0f, 0.0f };
+	glm::vec4 r2 = { 0.0f, 0.0f, 0.0f, 0.0f };
+	glm::vec4 temp[NUM_PARTICLES_Y][NUM_PARTICLES_X];
+	glm::vec4 temp2[NUM_PARTICLES_Y][NUM_PARTICLES_X];
+	glm::vec4 prev_temp[NUM_PARTICLES_Y][NUM_PARTICLES_X];
+	
+	glm::vec4 accel2[NUM_PARTICLES_Y][NUM_PARTICLES_X];
+	//for initialize prev pos & vel.
+	for (i = 0; i < NUM_PARTICLES_Y; i++)
+	{
+		for (j = 0; j < NUM_PARTICLES_X; j++)
+		{
+			cpu_prevposition[i][j] = cpu_position[i][j];
+			cpu_prevvelocity[i][j] = cpu_velocity[i][j];
+		}
+	}
+
+	for (i = 0; i < NUM_PARTICLES_Y; i++)
+	{
+		for (j = 0; j < NUM_PARTICLES_X; j++)
+		{
+			//initialize force. (calculate gravity part)
+			force = { GRAVITY[0] * PARTICLE_MASS, GRAVITY[1] * PARTICLE_MASS, GRAVITY[2] * PARTICLE_MASS, 0.0f };
+
+			//calculate spring force(8 cases)
+			//Right
+			if (j < NUM_PARTICLES_X - 1)
+			{
+				r = cpu_prevposition[i][j + 1] - cpu_prevposition[i][j];
+				force += SPRING_K * (normalize(r) - REST_LENGTH_HORIZ) * glm::normalize(r);
+			}
+			//Left
+			if (j > 0)
+			{
+				r = cpu_prevposition[i][j - 1] - cpu_prevposition[i][j];
+				force += SPRING_K * (normalize(r) - REST_LENGTH_HORIZ) * glm::normalize(r);
+			}
+			//Down
+			if (i > 0)
+			{
+				r = cpu_prevposition[i - 1][j] - cpu_prevposition[i][j];
+				force += SPRING_K * (normalize(r) - REST_LENGTH_VERT) * glm::normalize(r);
+			}
+			//Up
+			if (i < NUM_PARTICLES_Y - 1)
+			{
+				r = cpu_prevposition[i + 1][j] - cpu_prevposition[i][j];
+				force += SPRING_K * (normalize(r) - REST_LENGTH_VERT) * glm::normalize(r);
+			}
+
+			//Diagnoals
+			if (j < NUM_PARTICLES_X - 1 && i > 0)
+			{
+				r = cpu_prevposition[i - 1][j + 1] - cpu_prevposition[i][j];
+				force += SPRING_K * (normalize(r) - REST_LENGTH_DIAG) * glm::normalize(r);
+			}
+
+			if (j < NUM_PARTICLES_X - 1 && i < NUM_PARTICLES_Y - 1)
+			{
+				r = cpu_prevposition[i + 1][j + 1] - cpu_prevposition[i][j];
+				force += SPRING_K * (normalize(r) - REST_LENGTH_DIAG) * glm::normalize(r);
+			}
+
+			if (j > 0 && i < NUM_PARTICLES_Y - 1)
+			{
+				r = cpu_prevposition[i + 1][j - 1] - cpu_prevposition[i][j];
+				force += SPRING_K * (normalize(r) - REST_LENGTH_DIAG) * glm::normalize(r);
+			}
+
+			if (j > 0 && i > 0)
+			{
+				r = cpu_prevposition[i - 1][j - 1] - cpu_prevposition[i][j];
+				force += SPRING_K * (normalize(r) - REST_LENGTH_DIAG) * glm::normalize(r);
+			}
+
+			force -= DAMPING_CONST * cpu_prevvelocity[i][j];
+			accel[i][j] = force * PARTICLE_INV_MASS;
+			cpu_position[i][j] = cpu_prevposition[i][j] + cpu_prevvelocity[i][j] * DELTA_T
+				+ accel[i][j] * DELTA_T * DELTA_T / float(2);
+			temp[i][j] = cpu_prevposition[i][j] + cpu_prevvelocity[i][j] * DELTA_T;
+			prev_temp2[i][j] = cpu_prevvelocity[i][j] + accel[i][j] * DELTA_T;
+			
+			if (i == NUM_PARTICLES_X - 1 &&
+				(j == 0 || j == (NUM_PARTICLES_X - 1) / 4 || j == (NUM_PARTICLES_X - 1) * 2 / 4 ||
+					j == (NUM_PARTICLES_X - 1) * 3 / 4 || j == NUM_PARTICLES_X - 1))
+			{
+				temp[i][j] = cpu_prevposition[i][j];
+				cpu_velocity[i][j] = { 0.0f, 0.0f, 0.0f, 0.0f };
 			}
 
 		}
 	}
 	
-	force += spring;
-	force += -DAMPING_CONST * cpu_velocity;
-	accel = force * PARTICLE_INV_MASS;
-	cpu_velocity += accel * DELTA_T;
 
+	for (i = 0; i < NUM_PARTICLES_Y; i++)
+		for (j = 0; j < NUM_PARTICLES_X; j++)
+			prev_temp[i][j] = temp[i][j];
+		
+		
+	for (i = 0; i < NUM_PARTICLES_Y; i++)
+	{
+		for (j = 0; j < NUM_PARTICLES_X; j++)
+		{
+			//initialize force. (calculate gravity part)
+			force2 = { GRAVITY[0] * PARTICLE_MASS, GRAVITY[1] * PARTICLE_MASS, GRAVITY[2] * PARTICLE_MASS, 0.0f };
+
+			//calculate spring force(8 cases)
+			//Right
+			if (j < NUM_PARTICLES_X - 1)
+			{
+				r2 = prev_temp[i][j + 1] - prev_temp[i][j];
+				force2 += SPRING_K * (normalize(r2) - REST_LENGTH_HORIZ) * glm::normalize(r2);
+			}
+			//Left
+			if (j > 0)
+			{
+				r2 = prev_temp[i][j - 1] - prev_temp[i][j];
+				force2 += SPRING_K * (normalize(r2) - REST_LENGTH_HORIZ) * glm::normalize(r2);
+			}
+			//Down
+			if (i > 0)
+			{
+				r2 = prev_temp[i - 1][j] - prev_temp[i][j];
+				force2 += SPRING_K * (normalize(r2) - REST_LENGTH_VERT) * glm::normalize(r2);
+			}
+			//Up
+			if (i < NUM_PARTICLES_Y - 1)
+			{
+				r2 = prev_temp[i + 1][j] - prev_temp[i][j];
+				force2 += SPRING_K * (normalize(r2) - REST_LENGTH_VERT) * glm::normalize(r2);
+			}
+
+			//Diagnoals
+			if (j < NUM_PARTICLES_X - 1 && i > 0)
+			{
+				r2 = prev_temp[i - 1][j + 1] - prev_temp[i][j];
+				force2 += SPRING_K * (normalize(r2) - REST_LENGTH_DIAG) * glm::normalize(r2);
+			}
+
+			if (j < NUM_PARTICLES_X - 1 && i < NUM_PARTICLES_Y - 1)
+			{
+				r2 = prev_temp[i + 1][j + 1] - prev_temp[i][j];
+				force2 += SPRING_K * (normalize(r2) - REST_LENGTH_DIAG) * glm::normalize(r2);
+			}
+
+			if (j > 0 && i < NUM_PARTICLES_Y - 1)
+			{
+				r2 = prev_temp[i + 1][j - 1] - prev_temp[i][j];
+				force2 += SPRING_K * (normalize(r2) - REST_LENGTH_DIAG) * glm::normalize(r2);
+			}
+
+			if (j > 0 && i > 0)
+			{
+				r2 = prev_temp[i - 1][j - 1] - prev_temp[i][j];
+				force2 += SPRING_K * (normalize(r2) - REST_LENGTH_DIAG) * glm::normalize(r2);
+			}
+			
+			force2 -= DAMPING_CONST * prev_temp2[i][j];
+			accel2[i][j] = force2 * PARTICLE_INV_MASS;
+			cpu_velocity[i][j] = cpu_prevvelocity[i][j] + accel[i][j] * DELTA_T / float(2) + accel2[i][j] * DELTA_T / float(2);
+
+			//set 5 pins.
+			if (i == NUM_PARTICLES_X - 1 &&
+				(j == 0 || j == (NUM_PARTICLES_X - 1) / 4 || j == (NUM_PARTICLES_X - 1) * 2 / 4 ||
+					j == (NUM_PARTICLES_X - 1) * 3 / 4 || j == NUM_PARTICLES_X - 1))
+			{
+				cpu_position[i][j] = cpu_prevposition[i][j];
+				cpu_velocity[i][j] = { 0.0f, 0.0f, 0.0f, 0.0f };
+			}
+		}
+	}	
 }
 
-void display(void) 
+void ODE_I(double *t, double *y, double *yp)
 {
+	yp[0] = y[3];
+	yp[1] = y[4];
+	yp[2] = y[5];
+	yp[3] = ACC[0];
+	yp[4] = ACC[1];
+	yp[5] = ACC[2];
+}
+
+void CalcPosition_Fortran(void)
+{
+	glm::vec4 prev_pos[64][64];
+	glm::vec4 prev_pos2[64][64];
+	glm::vec4 prev_pos3[64][64];
+
+	glm::vec4 prev_vel[64][64];
+	glm::vec4 prev_vel2[64][64];
+	glm::vec4 prev_vel3[64][64];
 	
-    cl_int errcode_ret;
-    float compute_time;
-    int read_buf = 0;
+	glm::vec4 accel_temp0[64][64];
+	glm::vec4 accel_temp1[64][64];
+	glm::vec4 accel_temp2[64][64];
+	glm::vec4 accel_temp3[64][64];
+
+	cl_int errcode_ret;
 	int buffer_size = NUM_PARTICLES_X * NUM_PARTICLES_Y;
-    size_t global_work_size[3] = { NUM_PARTICLES_X, NUM_PARTICLES_Y, 0 };
-    size_t local_work_size[3] = { WORKGROUP_SIZE_X, WORKGROUP_SIZE_Y, 0 };
+	int i, j;
+	glm::vec4 force = { 0.0f, 0.0f, 0.0f,0.0f };
+	glm::vec4 accel[NUM_PARTICLES_Y ][NUM_PARTICLES_X];
+	glm::vec4 r = { 0.0f, 0.0f, 0.0f, 0.0f };
+	
+	t1 += DELTA_T;
+	//for initialize prev pos & vel.
+	for (i = 0; i < NUM_PARTICLES_Y; i++)
+	{
+		for (j = 0; j < NUM_PARTICLES_X; j++)
+		{
+			cpu_prevposition[i][j] = cpu_position[i][j];
+			cpu_prevvelocity[i][j] = cpu_velocity[i][j];
+		}
+	}
+
+	for (i = 0; i < NUM_PARTICLES_Y; i++)	
+	{
+		for (j = 0; j < NUM_PARTICLES_X; j++)
+		{
+			//initialize force. (calculate gravity part)
+			force = { GRAVITY[0] * PARTICLE_MASS, GRAVITY[1] * PARTICLE_MASS, GRAVITY[2] * PARTICLE_MASS, 0.0f };
+			
+			accel_temp0[i][j] = { 0.0f, 0.0f, 0.0f, 0.0f };
+			//calculate spring force(8 cases)
+			//Right
+			if (j < NUM_PARTICLES_X - 1)
+			{
+				r = cpu_prevposition[i][j + 1] - cpu_prevposition[i][j];
+				force += SPRING_K * (normalize(r) - REST_LENGTH_HORIZ) * glm::normalize(r);
+			}
+			//Left
+			if (j > 0)
+			{
+				r = cpu_prevposition[i][j - 1] - cpu_prevposition[i][j];
+				force += SPRING_K * (normalize(r) - REST_LENGTH_HORIZ) * glm::normalize(r);
+			}
+			//Down
+			if (i > 0)
+			{
+				r = cpu_prevposition[i - 1][j] - cpu_prevposition[i][j];
+				force += SPRING_K * (normalize(r) - REST_LENGTH_VERT) * glm::normalize(r);
+			}
+			//Up
+			if (i < NUM_PARTICLES_Y - 1)
+			{
+				r = cpu_prevposition[i + 1][j] - cpu_prevposition[i][j];
+				force += SPRING_K * (normalize(r) - REST_LENGTH_VERT) * glm::normalize(r);
+			}
+
+			//Diagnoals
+			if (j < NUM_PARTICLES_X - 1 && i > 0)
+			{
+				r = cpu_prevposition[i - 1][j + 1] - cpu_prevposition[i][j];
+				force += SPRING_K * (normalize(r) - REST_LENGTH_DIAG) * glm::normalize(r);
+			}
+
+			if (j < NUM_PARTICLES_X - 1 && i < NUM_PARTICLES_Y - 1)
+			{
+				r = cpu_prevposition[i + 1][j + 1] - cpu_prevposition[i][j];
+				force += SPRING_K * (normalize(r) - REST_LENGTH_DIAG) * glm::normalize(r);
+			}
+
+			if (j > 0 && i < NUM_PARTICLES_Y - 1)
+			{
+				r = cpu_prevposition[i + 1][j - 1] - cpu_prevposition[i][j];
+				force += SPRING_K * (normalize(r) - REST_LENGTH_DIAG) * glm::normalize(r);
+			}
+
+			if (j > 0 && i > 0)
+			{
+				r = cpu_prevposition[i - 1][j - 1] - cpu_prevposition[i][j];
+				force += SPRING_K * (normalize(r) - REST_LENGTH_DIAG) * glm::normalize(r);
+			}
+
+			force -= DAMPING_CONST * cpu_prevvelocity[i][j];
+			accel_temp0[i][j] = force * PARTICLE_INV_MASS;
+			
+			//set 5 pins.
+			if (i == NUM_PARTICLES_X - 1 &&
+				(j == 0 || j == (NUM_PARTICLES_X - 1) / 4 || j == (NUM_PARTICLES_X - 1) * 2 / 4 ||
+					j == (NUM_PARTICLES_X - 1) * 3 / 4 || j == NUM_PARTICLES_X - 1))
+			{
+				prev_pos[i][j] = cpu_prevposition[i][j];
+				prev_vel[i][j] = { 0.0f, 0.0f, 0.0f, 0.0f };
+			}
+			else
+			{
+				prev_vel[i][j] = accel_temp0[i][j] * DELTA_T / float(2) + cpu_prevvelocity[i][j];
+				prev_pos[i][j] = cpu_prevposition[i][j] + cpu_prevvelocity[i][j] * DELTA_T / float(2);
+			}
+		}
+	}
+	
+	for (i = 0; i < NUM_PARTICLES_Y; i++)
+	{
+		for (j = 0; j < NUM_PARTICLES_X; j++)
+		{
+			//initialize force. (calculate gravity part)
+			force = { GRAVITY[0] * PARTICLE_MASS, GRAVITY[1] * PARTICLE_MASS, GRAVITY[2] * PARTICLE_MASS, 0.0f };
+
+			accel_temp1[i][j] = { 0.0f, 0.0f, 0.0f, 0.0f };
+			//calculate spring force(8 cases)
+			//Right
+			if (j < NUM_PARTICLES_X - 1)
+			{
+				r = prev_pos[i][j + 1] - prev_pos[i][j];
+				force += SPRING_K * (normalize(r) - REST_LENGTH_HORIZ) * glm::normalize(r);
+			}
+			//Left
+			if (j > 0)
+			{
+				r = prev_pos[i][j - 1] - prev_pos[i][j];
+				force += SPRING_K * (normalize(r) - REST_LENGTH_HORIZ) * glm::normalize(r);
+			}
+			//Down
+			if (i > 0)
+			{
+				r = prev_pos[i - 1][j] - prev_pos[i][j];
+				force += SPRING_K * (normalize(r) - REST_LENGTH_VERT) * glm::normalize(r);
+			}
+			//Up
+			if (i < NUM_PARTICLES_Y - 1)
+			{
+				r = prev_pos[i + 1][j] - prev_pos[i][j];
+				force += SPRING_K * (normalize(r) - REST_LENGTH_VERT) * glm::normalize(r);
+			}
+
+			//Diagnoals
+			if (j < NUM_PARTICLES_X - 1 && i > 0)
+			{
+				r = prev_pos[i - 1][j + 1] - prev_pos[i][j];
+				force += SPRING_K * (normalize(r) - REST_LENGTH_DIAG) * glm::normalize(r);
+			}
+
+			if (j < NUM_PARTICLES_X - 1 && i < NUM_PARTICLES_Y - 1)
+			{
+				r = prev_pos[i + 1][j + 1] - prev_pos[i][j];
+				force += SPRING_K * (normalize(r) - REST_LENGTH_DIAG) * glm::normalize(r);
+			}
+
+			if (j > 0 && i < NUM_PARTICLES_Y - 1)
+			{
+				r = prev_pos[i + 1][j - 1] - prev_pos[i][j];
+				force += SPRING_K * (normalize(r) - REST_LENGTH_DIAG) * glm::normalize(r);
+			}
+
+			if (j > 0 && i > 0)
+			{
+				r = prev_pos[i - 1][j - 1] - prev_pos[i][j];
+				force += SPRING_K * (normalize(r) - REST_LENGTH_DIAG) * glm::normalize(r);
+			}
+
+			force -= DAMPING_CONST * prev_vel[i][j];
+			accel_temp1[i][j] = force * PARTICLE_INV_MASS;
+
+			//accel_temp2[i][j] = accel[i][j] * DELTA_T / float(2);
+
+			//set 5 pins.
+			if (i == NUM_PARTICLES_X - 1 &&
+				(j == 0 || j == (NUM_PARTICLES_X - 1) / 4 || j == (NUM_PARTICLES_X - 1) * 2 / 4 ||
+					j == (NUM_PARTICLES_X - 1) * 3 / 4 || j == NUM_PARTICLES_X - 1))
+			{
+				prev_pos2[i][j] = cpu_prevposition[i][j];
+				//prev_pos2[i][j] = cpu_prevposition[i][j];
+				prev_vel2[i][j] = { 0.0f, 0.0f, 0.0f, 0.0f };
+			}
+			else
+			{
+				prev_vel2[i][j] = accel_temp1[i][j] * DELTA_T / float(2) + cpu_prevvelocity[i][j];
+				prev_pos2[i][j] = cpu_prevposition[i][j] + prev_vel[i][j] * DELTA_T / float(2);
+			}
+		}
+	}
+
+	for (i = 0; i < NUM_PARTICLES_Y; i++)
+	{
+		for (j = 0; j < NUM_PARTICLES_X; j++)
+		{
+			//initialize force. (calculate gravity part)
+			force = { GRAVITY[0] * PARTICLE_MASS, GRAVITY[1] * PARTICLE_MASS, GRAVITY[2] * PARTICLE_MASS, 0.0f };
+
+			accel_temp2[i][j] = { 0.0f, 0.0f, 0.0f, 0.0f };
+			//calculate spring force(8 cases)
+			//Right
+			if (j < NUM_PARTICLES_X - 1)
+			{
+				r = prev_pos2[i][j + 1] - prev_pos2[i][j];
+				force += SPRING_K * (normalize(r) - REST_LENGTH_HORIZ) * glm::normalize(r);
+			}
+			//Left
+			if (j > 0)
+			{
+				r = prev_pos2[i][j - 1] - prev_pos2[i][j];
+				force += SPRING_K * (normalize(r) - REST_LENGTH_HORIZ) * glm::normalize(r);
+			}
+			//Down
+			if (i > 0)
+			{
+				r = prev_pos2[i - 1][j] - prev_pos2[i][j];
+				force += SPRING_K * (normalize(r) - REST_LENGTH_VERT) * glm::normalize(r);
+			}
+			//Up
+			if (i < NUM_PARTICLES_Y - 1)
+			{
+				r = prev_pos2[i + 1][j] - prev_pos2[i][j];
+				force += SPRING_K * (normalize(r) - REST_LENGTH_VERT) * glm::normalize(r);
+			}
+
+			//Diagnoals
+			if (j < NUM_PARTICLES_X - 1 && i > 0)
+			{
+				r = prev_pos2[i - 1][j + 1] - prev_pos2[i][j];
+				force += SPRING_K * (normalize(r) - REST_LENGTH_DIAG) * glm::normalize(r);
+			}
+
+			if (j < NUM_PARTICLES_X - 1 && i < NUM_PARTICLES_Y - 1)
+			{
+				r = prev_pos2[i + 1][j + 1] - prev_pos2[i][j];
+				force += SPRING_K * (normalize(r) - REST_LENGTH_DIAG) * glm::normalize(r);
+			}
+
+			if (j > 0 && i < NUM_PARTICLES_Y - 1)
+			{
+				r = prev_pos2[i + 1][j - 1] - prev_pos2[i][j];
+				force += SPRING_K * (normalize(r) - REST_LENGTH_DIAG) * glm::normalize(r);
+			}
+
+			if (j > 0 && i > 0)
+			{
+				r = prev_pos2[i - 1][j - 1] - prev_pos2[i][j];
+				force += SPRING_K * (normalize(r) - REST_LENGTH_DIAG) * glm::normalize(r);
+			}
+
+			force -= DAMPING_CONST * prev_vel2[i][j];
+			accel_temp2[i][j] = force * PARTICLE_INV_MASS;
+
+			//accel_temp2[i][j] = accel[i][j] * DELTA_T / float(2);
+
+			//set 5 pins.
+			if (i == NUM_PARTICLES_X - 1 &&
+				(j == 0 || j == (NUM_PARTICLES_X - 1) / 4 || j == (NUM_PARTICLES_X - 1) * 2 / 4 ||
+					j == (NUM_PARTICLES_X - 1) * 3 / 4 || j == NUM_PARTICLES_X - 1))
+			{
+				prev_pos3[i][j] = cpu_prevposition[i][j];
+				//prev_pos2[i][j] = cpu_prevposition[i][j];
+				prev_vel3[i][j] = { 0.0f, 0.0f, 0.0f, 0.0f };
+			}
+			else
+			{
+				prev_vel3[i][j] = accel_temp2[i][j] * DELTA_T / float(2) + cpu_prevvelocity[i][j];
+				prev_pos3[i][j] = cpu_prevposition[i][j] + prev_vel2[i][j] * DELTA_T / float(2);
+			}
+		}
+	}
+
+	for (i = 0; i < NUM_PARTICLES_Y; i++)
+	{
+		for (j = 0; j < NUM_PARTICLES_X; j++)
+		{
+			//initialize force. (calculate gravity part)
+			force = { GRAVITY[0] * PARTICLE_MASS, GRAVITY[1] * PARTICLE_MASS, GRAVITY[2] * PARTICLE_MASS, 0.0f };
+			double work1[3 + 6 * NEQN + 10];
+			int iwork1[10], neqn = NEQN;
+			double y_1[NEQN];
+			double t1_temp = t1, tinit1_temp = tinit1;
+			double err1 = 0.00000000001;
+			int iflag1 = +1;
+			accel_temp3[i][j] = { 0.0f, 0.0f, 0.0f, 0.0f };
+			//calculate spring force(8 cases)
+			//Right
+			if (j < NUM_PARTICLES_X - 1)
+			{
+				r = prev_pos3[i][j + 1] - prev_pos3[i][j];
+				force += SPRING_K * (normalize(r) - REST_LENGTH_HORIZ) * glm::normalize(r);
+			}
+			//Left
+			if (j > 0)
+			{
+				r = prev_pos3[i][j - 1] - prev_pos3[i][j];
+				force += SPRING_K * (normalize(r) - REST_LENGTH_HORIZ) * glm::normalize(r);
+			}
+			//Down
+			if (i > 0)
+			{
+				r = prev_pos3[i - 1][j] - prev_pos3[i][j];
+				force += SPRING_K * (normalize(r) - REST_LENGTH_VERT) * glm::normalize(r);
+			}
+			//Up
+			if (i < NUM_PARTICLES_Y - 1)
+			{
+				r = prev_pos3[i + 1][j] - prev_pos3[i][j];
+				force += SPRING_K * (normalize(r) - REST_LENGTH_VERT) * glm::normalize(r);
+			}
+
+			//Diagnoals
+			if (j < NUM_PARTICLES_X - 1 && i > 0)
+			{
+				r = prev_pos3[i - 1][j + 1] - prev_pos3[i][j];
+				force += SPRING_K * (normalize(r) - REST_LENGTH_DIAG) * glm::normalize(r);
+			}
+
+			if (j < NUM_PARTICLES_X - 1 && i < NUM_PARTICLES_Y - 1)
+			{
+				r = prev_pos3[i + 1][j + 1] - prev_pos3[i][j];
+				force += SPRING_K * (normalize(r) - REST_LENGTH_DIAG) * glm::normalize(r);
+			}
+
+			if (j > 0 && i < NUM_PARTICLES_Y - 1)
+			{
+				r = prev_pos3[i + 1][j - 1] - prev_pos3[i][j];
+				force += SPRING_K * (normalize(r) - REST_LENGTH_DIAG) * glm::normalize(r);
+			}
+
+			if (j > 0 && i > 0)
+			{
+				r = prev_pos3[i - 1][j - 1] - prev_pos3[i][j];
+				force += SPRING_K * (normalize(r) - REST_LENGTH_DIAG) * glm::normalize(r);
+			}
+
+			force -= DAMPING_CONST * prev_vel3[i][j];
+			accel_temp3[i][j] = force * PARTICLE_INV_MASS;
+
+			//accel_temp3[i][j] = accel[i][j] * DELTA_T / float(2);
+			y_1[0] = (double)cpu_position[i][j].x;
+			y_1[1] = (double)cpu_position[i][j].y;
+			y_1[2] = (double)cpu_position[i][j].z;
+			y_1[3] = (double)((cpu_prevvelocity[i][j].x + (prev_vel[i][j].x * (float)2) + (prev_vel2[i][j].x * (float)2) + prev_vel3[i][j].x) / 6);
+			y_1[4] = (double)((cpu_prevvelocity[i][j].y + (prev_vel[i][j].y * (float)2) + (prev_vel2[i][j].y * (float)2) + prev_vel3[i][j].y) / 6);
+			y_1[5] = (double)((cpu_prevvelocity[i][j].z + (prev_vel[i][j].z * (float)2) + (prev_vel2[i][j].z * (float)2) + prev_vel3[i][j].z) / 6);
+			ACC[0] = (double)((accel_temp0[i][j].x + (accel_temp1[i][j].x * (float)2) + (accel_temp2[i][j].x * (float)2) + accel_temp3[i][j].x) / 6);
+			ACC[1] = (double)((accel_temp0[i][j].y + (accel_temp1[i][j].y * (float)2) + (accel_temp2[i][j].y * (float)2) + accel_temp3[i][j].y) / 6);
+			ACC[2] = (double)((accel_temp0[i][j].z + (accel_temp1[i][j].z * (float)2) + (accel_temp2[i][j].z * (float)2) + accel_temp3[i][j].z) / 6);
+			//set 5 pins.
+			//tinit1_temp = 0.0;	t1_temp = DELTA_T;
+			rkf45_(ODE_I, &neqn, y_1, &tinit1_temp, &t1_temp, &err1, &err1, &iflag1, work1, iwork1);
+			/*switch (iflag1) {
+			case 7:
+				iflag1 = 2;
+				rkf45_(ODE_I, &neqn, y_1, &tinit1_temp, &t1_temp, &err1, &err1, &iflag1, work1, iwork1);
+				break;
+			case 8:
+				printf("Error : invaild input parameters\n");
+				break;
+			default:
+				break;
+			}
+			*/
+			if (i == NUM_PARTICLES_X - 1 &&
+				(j == 0 || j == (NUM_PARTICLES_X - 1) / 4 || j == (NUM_PARTICLES_X - 1) * 2 / 4 ||
+					j == (NUM_PARTICLES_X - 1) * 3 / 4 || j == NUM_PARTICLES_X - 1))
+			{
+				cpu_position[i][j] = cpu_prevposition[i][j];
+				cpu_velocity[i][j] = { 0.0f, 0.0f, 0.0f, 0.0f };
+			}
+			else
+			{
+				cpu_position[i][j].x = (float)y_1[0];
+				cpu_position[i][j].y = (float)y_1[1];
+				cpu_position[i][j].z = (float)y_1[2];
+				cpu_position[i][j].w = (float)cpu_prevposition[i][j].w;
+				cpu_velocity[i][j].x = (float)y_1[3];
+				cpu_velocity[i][j].y = (float)y_1[4];
+				cpu_velocity[i][j].z = (float)y_1[5];
+				cpu_velocity[i][j].w = (float)cpu_prevvelocity[i][j].w;
+			}
+		}
+	}
+	tinit1 += DELTA_T;
+	/*for(i = 0; i < 64; i ++)
+		for (j = 0; j < 64; j++)
+		{
+			prev_pos[i][j] = { 0.0f, 0.0f, 0.0f, 0.0f };
+			prev_pos2[i][j] = { 0.0f, 0.0f, 0.0f, 0.0f };
+			prev_pos3[i][j] = { 0.0f, 0.0f, 0.0f, 0.0f };
+
+			prev_vel[i][j] = { 0.0f, 0.0f, 0.0f, 0.0f };
+			prev_vel2[i][j] = { 0.0f, 0.0f, 0.0f, 0.0f };
+			prev_vel3[i][j] = { 0.0f, 0.0f, 0.0f, 0.0f };
+
+			accel_temp0[i][j] = { 0.0f, 0.0f, 0.0f, 0.0f };
+			accel_temp1[i][j] = { 0.0f, 0.0f, 0.0f, 0.0f };
+			accel_temp2[i][j] = { 0.0f, 0.0f, 0.0f, 0.0f };
+			accel_temp3[i][j] = { 0.0f, 0.0f, 0.0f, 0.0f };
+
+		}*/
+	
+}
+
+void display(void)
+{
+	cl_int errcode_ret;
+	float compute_time;
+	int read_buf = 0;
+	int i;
+	int buffer_size = NUM_PARTICLES_X * NUM_PARTICLES_Y;
+	size_t global_work_size[3] = { NUM_PARTICLES_X, NUM_PARTICLES_Y, 0 };
+	size_t local_work_size[3] = { WORKGROUP_SIZE_X, WORKGROUP_SIZE_Y, 0 };
+	
 	//*********************************
 	
-	CHECK_TIME_START;
-
-	// Position, Velocity 계산 (실제로 구현해야 할 부분)
-
-	CalcPosition();
-	
-	// Position, Velocity 데이터 넘김 (CPU -> GPU)
-	glBindBuffer(GL_ARRAY_BUFFER, loc_curr_pos);
-	glBufferData(GL_ARRAY_BUFFER, 4 * buffer_size * sizeof(GLfloat), &cpu_position[0], GL_DYNAMIC_DRAW);
-	glBindBuffer(GL_ARRAY_BUFFER, loc_curr_vel);
-	glBufferData(GL_ARRAY_BUFFER, 4 * buffer_size * sizeof(GLfloat), &cpu_velocity[0], GL_DYNAMIC_COPY);
-
-	// 권한 얻어옴 (OpenGL -> OpenCL)
 	glFlush();
 	glFinish();
 	errcode_ret = clEnqueueAcquireGLObjects(cmd_queue, 2, buf_pos, 0, nullptr, nullptr);
@@ -670,21 +1369,34 @@ void display(void)
 	errcode_ret = clEnqueueAcquireGLObjects(cmd_queue, 1, &buf_normal, 0, nullptr, nullptr);
 	CHECK_ERROR_CODE(errcode_ret);
 
+	CHECK_TIME_START;
+
+	// Position, Velocity 계산 (실제로 구현해야 할 부분)
+	for (i = 0; i < NUM_ITER; i++)
+		CalcPosition_Fortran();
+
+	// Position, Velocity 데이터 넘김 (CPU -> GPU)
+	errcode_ret = clEnqueueWriteBuffer(cmd_queue, buf_pos[0], CL_FALSE, 0, 4 * buffer_size * sizeof(GLfloat), &cpu_position[0][0], 0, NULL, NULL);
+	CHECK_ERROR_CODE(errcode_ret);
+	errcode_ret = clEnqueueWriteBuffer(cmd_queue, buf_vel[0], CL_FALSE, 0, 4 * buffer_size * sizeof(GLfloat), &cpu_velocity[0][0], 0, NULL, NULL);
+	CHECK_ERROR_CODE(errcode_ret);
+	
 	// 넘긴 데이터로부터 Normal 구함 (이 부분은 렌더링을 위한 부분으로 이번 과제에서 고정)
-	errcode_ret  = clSetKernelArg(kernel[1], 0, sizeof(cl_mem), &buf_pos[0]);
+	errcode_ret = clSetKernelArg(kernel[1], 0, sizeof(cl_mem), &buf_pos[0]);
 	errcode_ret |= clSetKernelArg(kernel[1], 1, sizeof(cl_mem), &buf_normal);
 	errcode_ret |= clSetKernelArg(kernel[1], 2, 4 * (WORKGROUP_SIZE_X + 2) * (WORKGROUP_SIZE_Y + 2) * sizeof(float), NULL);
 	CHECK_ERROR_CODE(errcode_ret);
 	errcode_ret = clEnqueueNDRangeKernel(cmd_queue, kernel[1], 2, nullptr, global_work_size, local_work_size, 0, nullptr, nullptr);
 	CHECK_ERROR_CODE(errcode_ret);
-
+	
 	clFinish(cmd_queue);
 	
 	CHECK_TIME_END(compute_time);
 	
-	//*////////////////////////////////
     // run OpenCL kernel
 	
+	/* for GPU */
+	/*
     glFlush();
     glFinish();
     errcode_ret = clEnqueueAcquireGLObjects(cmd_queue, 2, buf_pos, 0, nullptr, nullptr);
@@ -739,7 +1451,7 @@ void display(void)
 
     clFinish(cmd_queue);
     CHECK_TIME_END(compute_time);
-	
+	*/
     clFlush(cmd_queue);
     clFinish(cmd_queue);
     errcode_ret = clEnqueueReleaseGLObjects(cmd_queue, 2, buf_pos, 0, nullptr, nullptr);

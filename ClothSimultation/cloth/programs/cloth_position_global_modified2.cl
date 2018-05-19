@@ -17,60 +17,10 @@ void cloth_position(
 	__global float* rk2_tempz) {
 	int idx = get_global_id(0) + get_global_size(0) * get_global_id(1);
 
-	float4 r, r2;
-	float3 v = r.xyz;
+	float4 r;
+	float3 v = vel_in[idx].xyz;
 	float3 force = Gravity * ParticleMass;
 		
-	if (get_global_id(1) < get_global_size(1) - 1)
-	{
-		r = pos_in[idx + get_global_size(0)] - pos_in[idx];
-		force += normalize(r).xyz * SpringK * (length(r) - RestLengthVert);
-	}
-
-	if (get_global_id(1) > 0)
-	{
-		r = pos_in[idx - get_global_size(0)] - pos_in[idx];
-		force += normalize(r).xyz * SpringK * (length(r) - RestLengthVert);
-	}
-
-	if (get_global_id(0) > 0)
-	{
-		r = pos_in[idx - 1] - pos_in[idx];
-		force += normalize(r).xyz * SpringK * (length(r) - RestLengthHoriz);
-	}
-
-	if (get_global_id(0) < get_global_size(0) - 1)
-	{
-		r = pos_in[idx + 1] - pos_in[idx];
-		force += normalize(r).xyz * SpringK * (length(r) - RestLengthHoriz);
-	}
-
-	// Diagonals
-
-	if (get_global_id(0) > 0 && get_global_id(1) < get_global_size(1) - 1)
-	{
-		r = pos_in[idx + get_global_size(0) - 1] - pos_in[idx];
-		force += normalize(r).xyz * SpringK * (length(r) - RestLengthDiag);
-	}
-
-	if (get_global_id(0) < get_global_size(0) - 1 && get_global_id(1) < get_global_size(1) - 1)
-	{
-		r = pos_in[idx + get_global_size(0) + 1] - pos_in[idx];
-		force += normalize(r).xyz * SpringK * (length(r) - RestLengthDiag);
-	}
-
-	if (get_global_id(0) > 0 && get_global_id(1) > 0)
-	{
-		r = pos_in[idx - get_global_size(0) - 1] - pos_in[idx];
-		force += normalize(r).xyz * SpringK * (length(r) - RestLengthDiag);
-	}
-
-	if (get_global_id(0) < get_global_size(0) - 1 && get_global_id(1) > 0)
-	{
-		r = pos_in[idx - get_global_size(0) + 1] - pos_in[idx];
-		force += normalize(r).xyz * SpringK * (length(r) - RestLengthDiag);
-	}
-
 	if (get_global_id(1) < get_global_size(1) - 1)
 	{
 		r = pos_in[idx + get_global_size(0)] - pos_in[idx];
@@ -126,12 +76,12 @@ void cloth_position(
 	
 	// Position of Particles
 	
-	pos_out[idx] = pos_in[idx] + vel_in[idx] * DeltaT + (float4)( (float)(0.5) * a * DeltaT * DeltaT, 0.0);
-	//Method 3 : Second-Order Runge-Kutta Me thod
+	pos_out[idx] = pos_in[idx] + vel_in[idx] * DeltaT + (float4)( a * DeltaT * DeltaT / 2, 0.0);
+	//Method 3 : Second-Order Runge-Kutta Method
 
 	//Velocity of Particles                                                                
 	
-	vel_out[idx] = vel_in[idx] + (float4)((float)(0.5) * a * DeltaT, 0.0) + (float4)((float)(0.5) * (float3)(*rk2_tempx, *rk2_tempy, *rk2_tempz ) *DeltaT, 0.0);
+	vel_out[idx] = vel_in[idx] + (float4)((float)(0.5) * a * DeltaT, 0.0) + (float4)((float3)((*rk2_tempx, *rk2_tempy, *rk2_tempz ) * DeltaT / 2 ), 0.0);
 	//Method 3 : Second-Order Runge-Kutta Method
 
 	

@@ -120,6 +120,7 @@
     <Link>
       <AdditionalLibraryDirectories>C:\usr\local\OpenCL\lib\x86_64;$(SolutionDir)OpenGLFiles\lib\x86_64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalDependencies>rkf45.o;freeglut.lib;glew32.lib;FreeImage.lib;OpenCL.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <ImageHasSafeExceptionHandlers>false</ImageHasSafeExceptionHandlers>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>

@@ -16,7 +16,7 @@ void cloth_position(
 	int local_idx = (get_local_id(0) + 1) + (get_local_size(0) + 2) * (get_local_id(1) + 1);
 
 	float4 r;
-	float3 v = r.xyz;
+	float3 v = vel_in[idx].xyz;
 	float3 force = Gravity * ParticleMass;
 
 	local_data[local_idx] = pos_in[global_idx];  // position copy
@@ -109,7 +109,7 @@ void cloth_position(
 
 	// Position of Particles
 	
-	pos_out[global_idx] = local_data[local_idx] + vel_in[global_idx] * DeltaT + (float4)((float)(0.5) * a * DeltaT * DeltaT, 0.0);               
+	pos_out[global_idx] = local_data[local_idx] + vel_in[global_idx] * DeltaT + (float4)(a * DeltaT * DeltaT / 2, 0.0);               
 	//Method 2 : 수업시간에 설명한 방법
 	
 	//Velocity of Particles           
