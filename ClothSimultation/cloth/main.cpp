@@ -5,7 +5,6 @@
 #include <time.h>
 #include "rkf45.h"
 
-
 //int rkf45_(void ODE_I(double *, double*, double*), int *, double*, double*, double*, double*, double*, int*, double*, int*);
 /******************************************************************************************************/
 #ifdef __APPLE__
@@ -38,7 +37,7 @@ typedef struct _OPENCL_C_PROG_SRC {
     char *string;
 } OPENCL_C_PROG_SRC;
 
-#define OPENCL_C_PROG_POS_FILE_NAME "programs/cloth_position_global_modified2.cl"
+#define OPENCL_C_PROG_POS_FILE_NAME "programs/cloth_position_global_euler.cl"
 #define OPENCL_C_PROG_NOR_FILE_NAME "programs/cloth_normal.cl"
 #define KERNEL_POS_NAME "cloth_position"
 #define KERNEL_NOR_NAME "cloth_normal"
@@ -117,9 +116,6 @@ GLuint x = 0, y = 0, z = 0;
 
 GLuint cloth_VAO;
 GLuint cloth_BOs[7];
-//GLfloat cpu_position[NUM_PARTICLES_X][NUM_PARTICLES_Y];
-//GLfloat cpu_prevposition[NUM_PARTICLES_X][NUM_PARTICLES_Y];
-//GLfloat cpu_velocity[NUM_PARTICLES_X * NUM_PARTICLES_Y][3];
 
 // include glm/*.hpp only if necessary
 //#include <glm/glm.hpp> 
@@ -133,9 +129,7 @@ glm::vec4 cpu_prevposition[64][64];
 glm::vec4 cpu_velocity[64][64];
 glm::vec4 cpu_prevvelocity[64][64];
 double ACC[3];
-//glm::vec3 cpu_velocity; //= (float*)malloc(sizeof(float)*buffer_size);
-//glm::vec3 cpu_position[NUM_PARTICLES_X][NUM_PARTICLES_Y]; //= (float*)malloc(sizeof(float)*buffer_size);
-//glm::vec3 cpu_prevposition[NUM_PARTICLES_X][NUM_PARTICLES_Y];
+
 #define TO_RADIAN 0.01745329252f  
 #define TO_DEGREE 57.295779513f
 #define BUFFER_OFFSET(offset) ((GLvoid *) (offset))
@@ -164,7 +158,6 @@ const int NUM_PARTICLES_Y = 64;
 
 const float CLOTH_SIZE_X = 4.0f;
 const float CLOTH_SIZE_Y = 3.0f;
-
 
 const float PARTICLE_MASS = 0.015;
 const float PARTICLE_INV_MASS = 1.0 / PARTICLE_MASS;
@@ -564,7 +557,7 @@ void CalcPosition_euler(void)
 	glm::vec4 force = { 0.0f, 0.0f, 0.0f,0.0f };
 	glm::vec4 accel = { 0.0f, 0.0f, 0.0f,0.0f };
 	glm::vec4 r = { 0.0f, 0.0f, 0.0f, 0.0f };
-	
+	//FILE *fp = fopen("euler.txt", "wt");
 	//for initialize prev pos & vel.
 	for (i = 0; i < NUM_PARTICLES_Y; i++)
 	{
@@ -638,7 +631,7 @@ void CalcPosition_euler(void)
 		
 			cpu_position[i][j] = cpu_prevposition[i][j] + cpu_prevvelocity[i][j] * DELTA_T;
 			cpu_velocity[i][j] = cpu_prevvelocity[i][j] + accel * DELTA_T;
-
+			//fprintf(fp, "%d %d %lf %lf %lf\n", i, j, cpu_position[i][j].x, cpu_position[i][j].y, cpu_position[i][j].z);
 			//set 5 pins.
 			if (i == NUM_PARTICLES_X - 1 &&
 				(j == 0 || j == (NUM_PARTICLES_X-1) / 4 || j == (NUM_PARTICLES_X-1) * 2 / 4 ||
@@ -736,7 +729,7 @@ void CalcPosition_modified1(void)
 			cpu_position[i][j] = cpu_prevposition[i][j] + cpu_prevvelocity[i][j] * DELTA_T
 				+ accel * DELTA_T * DELTA_T * (float)(0.5);
 			cpu_velocity[i][j] = cpu_prevvelocity[i][j] + accel * DELTA_T;
-
+			
 			//set 5 pins.
 			if (i == NUM_PARTICLES_X - 1 &&
 				(j == 0 || j == (NUM_PARTICLES_X - 1) / 4 || j == (NUM_PARTICLES_X - 1) * 2 / 4 ||
@@ -764,7 +757,6 @@ void CalcPosition_modified2(void)
 	glm::vec4 temp[NUM_PARTICLES_Y][NUM_PARTICLES_X];
 	glm::vec4 temp2[NUM_PARTICLES_Y][NUM_PARTICLES_X];
 	glm::vec4 prev_temp[NUM_PARTICLES_Y][NUM_PARTICLES_X];
-	
 	glm::vec4 accel2[NUM_PARTICLES_Y][NUM_PARTICLES_X];
 	//for initialize prev pos & vel.
 	for (i = 0; i < NUM_PARTICLES_Y; i++)
@@ -919,7 +911,6 @@ void CalcPosition_modified2(void)
 			force2 -= DAMPING_CONST * prev_temp2[i][j];
 			accel2[i][j] = force2 * PARTICLE_INV_MASS;
 			cpu_velocity[i][j] = cpu_prevvelocity[i][j] + accel[i][j] * DELTA_T / float(2) + accel2[i][j] * DELTA_T / float(2);
-
 			//set 5 pins.
 			if (i == NUM_PARTICLES_X - 1 &&
 				(j == 0 || j == (NUM_PARTICLES_X - 1) / 4 || j == (NUM_PARTICLES_X - 1) * 2 / 4 ||
@@ -1292,21 +1283,9 @@ void CalcPosition_Fortran(void)
 			ACC[0] = (double)((accel_temp0[i][j].x + (accel_temp1[i][j].x * (float)2) + (accel_temp2[i][j].x * (float)2) + accel_temp3[i][j].x) / 6);
 			ACC[1] = (double)((accel_temp0[i][j].y + (accel_temp1[i][j].y * (float)2) + (accel_temp2[i][j].y * (float)2) + accel_temp3[i][j].y) / 6);
 			ACC[2] = (double)((accel_temp0[i][j].z + (accel_temp1[i][j].z * (float)2) + (accel_temp2[i][j].z * (float)2) + accel_temp3[i][j].z) / 6);
-			//set 5 pins.
-			//tinit1_temp = 0.0;	t1_temp = DELTA_T;
+			
 			rkf45_(ODE_I, &neqn, y_1, &tinit1_temp, &t1_temp, &err1, &err1, &iflag1, work1, iwork1);
-			/*switch (iflag1) {
-			case 7:
-				iflag1 = 2;
-				rkf45_(ODE_I, &neqn, y_1, &tinit1_temp, &t1_temp, &err1, &err1, &iflag1, work1, iwork1);
-				break;
-			case 8:
-				printf("Error : invaild input parameters\n");
-				break;
-			default:
-				break;
-			}
-			*/
+		
 			if (i == NUM_PARTICLES_X - 1 &&
 				(j == 0 || j == (NUM_PARTICLES_X - 1) / 4 || j == (NUM_PARTICLES_X - 1) * 2 / 4 ||
 					j == (NUM_PARTICLES_X - 1) * 3 / 4 || j == NUM_PARTICLES_X - 1))
@@ -1324,28 +1303,12 @@ void CalcPosition_Fortran(void)
 				cpu_velocity[i][j].y = (float)y_1[4];
 				cpu_velocity[i][j].z = (float)y_1[5];
 				cpu_velocity[i][j].w = (float)cpu_prevvelocity[i][j].w;
+				
 			}
 		}
 	}
-	tinit1 += DELTA_T;
-	/*for(i = 0; i < 64; i ++)
-		for (j = 0; j < 64; j++)
-		{
-			prev_pos[i][j] = { 0.0f, 0.0f, 0.0f, 0.0f };
-			prev_pos2[i][j] = { 0.0f, 0.0f, 0.0f, 0.0f };
-			prev_pos3[i][j] = { 0.0f, 0.0f, 0.0f, 0.0f };
-
-			prev_vel[i][j] = { 0.0f, 0.0f, 0.0f, 0.0f };
-			prev_vel2[i][j] = { 0.0f, 0.0f, 0.0f, 0.0f };
-			prev_vel3[i][j] = { 0.0f, 0.0f, 0.0f, 0.0f };
-
-			accel_temp0[i][j] = { 0.0f, 0.0f, 0.0f, 0.0f };
-			accel_temp1[i][j] = { 0.0f, 0.0f, 0.0f, 0.0f };
-			accel_temp2[i][j] = { 0.0f, 0.0f, 0.0f, 0.0f };
-			accel_temp3[i][j] = { 0.0f, 0.0f, 0.0f, 0.0f };
-
-		}*/
 	
+	tinit1 += DELTA_T;
 }
 
 void display(void)
@@ -1353,13 +1316,15 @@ void display(void)
 	cl_int errcode_ret;
 	float compute_time;
 	int read_buf = 0;
-	int i;
+	int i, j;
+	float x_1 = 0, x_2 = 0, x_3 = 0, z_1= 0, z_2=0, z_3=0;
+	int temp1, temp2, temp3, temp4, temp5;
 	int buffer_size = NUM_PARTICLES_X * NUM_PARTICLES_Y;
 	size_t global_work_size[3] = { NUM_PARTICLES_X, NUM_PARTICLES_Y, 0 };
 	size_t local_work_size[3] = { WORKGROUP_SIZE_X, WORKGROUP_SIZE_Y, 0 };
-	
-	//*********************************
-	
+
+	/* for CPU start */
+	/*
 	glFlush();
 	glFinish();
 	errcode_ret = clEnqueueAcquireGLObjects(cmd_queue, 2, buf_pos, 0, nullptr, nullptr);
@@ -1371,10 +1336,11 @@ void display(void)
 
 	CHECK_TIME_START;
 
-	// Position, Velocity 계산 (실제로 구현해야 할 부분)
+	// Position, Velocity 계산 (Euler, modified1, modified2, Fortran - 총 4가지 방법)
 	for (i = 0; i < NUM_ITER; i++)
-		CalcPosition_Fortran();
-
+	{
+		CalcPosition_modified1();
+	}
 	// Position, Velocity 데이터 넘김 (CPU -> GPU)
 	errcode_ret = clEnqueueWriteBuffer(cmd_queue, buf_pos[0], CL_FALSE, 0, 4 * buffer_size * sizeof(GLfloat), &cpu_position[0][0], 0, NULL, NULL);
 	CHECK_ERROR_CODE(errcode_ret);
@@ -1393,10 +1359,13 @@ void display(void)
 	
 	CHECK_TIME_END(compute_time);
 	
+	
+	*/
+	/* for CPU end */
     // run OpenCL kernel
 	
-	/* for GPU */
-	/*
+	/* for GPU start */
+	
     glFlush();
     glFinish();
     errcode_ret = clEnqueueAcquireGLObjects(cmd_queue, 2, buf_pos, 0, nullptr, nullptr);
@@ -1451,7 +1420,8 @@ void display(void)
 
     clFinish(cmd_queue);
     CHECK_TIME_END(compute_time);
-	*/
+
+	/* for GPU end*/
     clFlush(cmd_queue);
     clFinish(cmd_queue);
     errcode_ret = clEnqueueReleaseGLObjects(cmd_queue, 2, buf_pos, 0, nullptr, nullptr);
@@ -1523,7 +1493,7 @@ void timer_scene(int timestamp_scene) {
 		scanf("%d", &dummy_var);
 	}
 	*/
-    glutTimerFunc(5, timer_scene, (timestamp_scene + 1) % INT_MAX);
+	glutTimerFunc(5, timer_scene, (timestamp_scene + 1) % INT_MAX);
 }
 
 void cleanup(void) {
